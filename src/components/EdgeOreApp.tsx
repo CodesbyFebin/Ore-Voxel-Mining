@@ -317,7 +317,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
 
   const snap = hud;
   const near = Boolean(snap?.nearTerminal);
-  const terminalView = terminalCapabilities((snap?.dimension === "geode" || snap?.dimension === "ember" ? snap.dimension : "valley") as TerminalDimension);
+  const terminalView = terminalCapabilities((snap?.dimension === "AMETHYST ABYSS" ? "geode" : snap?.dimension === "EMBER DEPTHS" ? "ember" : "valley") as TerminalDimension);
 
   return (
     <main className="shell">
