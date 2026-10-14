@@ -2,6 +2,7 @@ import "@/polyfills";
 import { useEffect, useRef, useState } from "react";
 import { Landing } from "@/components/Landing";
 import { Download, X } from "lucide-react";
+import { SandboxMarket } from "@/components/SandboxMarket";
 import { PICKAXES, block } from "@/game/blocks";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
 import type { ChainSnapshot, WalletBalances } from "@/ore/chain";
@@ -81,6 +82,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [toast, setToast] = useState("");
   const [pack, setPack] = useState(false);
   const [term, setTerm] = useState(false);
+  const [marketOpen,setMarketOpen] = useState(false);
   const [receiptsOpen, setReceiptsOpen] = useState(false);
   const [chain, setChain] = useState<ChainSnapshot>(emptyChain);
   const [walletName, setWalletName] = useState<string | null>(null);
@@ -223,6 +225,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   }
 
   function openTerminal() {
+    setMarketOpen(false);
     setTerm(true);
     setPack(false);
     gameRef.current?.setPaused(true);
@@ -235,6 +238,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   }
 
   function closeOverlays() {
+    setMarketOpen(false);
     setPack(false);
     setTerm(false);
     setGuide(false);
@@ -642,12 +646,13 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                 <h2 className="text-base font-extrabold text-mint sm:text-lg">ORE GRID · PLAYTEST</h2>
                 <p className="font-mono text-[10px] text-muted">Program {short(ORE_PROGRAM_ID_STR)} · mainnet · not a second token</p>
               </div>
-              <span className="rounded-full border border-mint/40 bg-mint/10 px-2 py-1 text-[10px] font-bold tracking-wider text-mint uppercase">Read only</span>
+              <button type="button" className="rounded-lg border border-cyan/50 bg-cyan/10 px-2 py-2 text-[10px] font-bold text-cyan sm:text-xs" onClick={()=>setMarketOpen(v=>!v)}>{marketOpen?"ORE GRID":"DEMO TRADE / STAKE"}</button>
+              <span className="hidden rounded-full border border-mint/40 bg-mint/10 px-2 py-1 text-[10px] font-bold tracking-wider text-mint uppercase sm:inline">Read only</span>
               <button type="button" aria-label="Close terminal and resume game" className="rounded-lg border border-line p-2 text-fg hover:border-mint focus-visible:outline-2 focus-visible:outline-mint" onClick={closeOverlays}>
                 <X />
               </button>
             </header>
-            <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto overscroll-contain p-3 sm:p-4 md:grid-cols-[minmax(0,1fr)_240px]">
+            {marketOpen ? <SandboxMarket onClose={()=>setMarketOpen(false)}/> : <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto overscroll-contain p-3 sm:p-4 md:grid-cols-[minmax(0,1fr)_240px]">
               <div>
                 <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                   {Array.from({ length: 25 }, (_, i) => (
@@ -673,7 +678,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                   <Stat k="Decoded claimable" v={`${balances.claimableSol.toFixed(4)} SOL${balances.claimableOre ? ` · ${balances.claimableOre} ORE` : ""}`} />
                 )}
               </aside>
-            </div>
+            </div>}
             <footer className="relative z-10 border-t border-line bg-surface px-4 py-3">
               <div className="mb-2 rounded-lg border border-danger/70 p-2 text-[11px] leading-relaxed text-danger">
                 <div className="font-bold text-fg">Financial operations disabled</div>
