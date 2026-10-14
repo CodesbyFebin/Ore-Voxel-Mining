@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { PICKAXES, block } from "@/game/blocks";
+import { planStructure, type ComputeStructure } from "@/game/compute-structures";
 import { blockAtlas, meshChunk } from "@/game/mesher";
 import { traceVoxel } from "@/game/dda";
 import { DIMENSIONS, dimensionSeed, isDimensionId, type DimensionId } from "@/game/dimensions";
@@ -88,6 +89,7 @@ export type GameHandle = {
   repair: () => string;
   grantVault: () => string;
   usePortal: () => string;
+  buildComputeStructure: (kind: ComputeStructure) => string;
   snapshot: () => HudSnapshot;
   dispose: () => void;
 };
@@ -353,6 +355,41 @@ export function mountGame(
     }
     chunkMeshes.clear();
     for (let cz = 0; cz < CHUNKS_Z; cz++) for (let cx = 0; cx < CHUNKS_X; cx++) rebuild(cx, cz);
+  }
+
+  function buildComputeStructure(kind: ComputeStructure): string {
+    if (!started) return "Start the game first.";
+    const candidates = [
+      [player.x + 13, player.z], [player.x - 13, player.z],
+      [player.x, player.z + 13], [player.x, player.z - 13],
+      [10, 10], [38, 10], [10, 38], [38, 38],
+    ];
+    for (const [cx, cz] of candidates) {
+      const x = Math.floor(cx), z = Math.floor(cz);
+      if (x < 7 || z < 7 || x >= WX - 7 || z >= WZ - 7) continue;
+      let highest = 1;
+      for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+        for (let y = WY - 2; y >= 1; y--) {
+          if (world.blocks[idx(x + dx, y, z + dz)] !== 0) {
+            highest = Math.max(highest, y + 1);
+            break;
+          }
+        }
+      }
+      const result = planStructure(world, kind, { x, y: highest, z }, player);
+      if (!result.ok) continue;
+      for (const [key, id] of Object.entries(result.edits)) {
+        const [xs, ys, zs] = key.split(",");
+        const bx = Number(xs), by = Number(ys), bz = Number(zs);
+        world.blocks[idx(bx, by, bz)] = id;
+        edits[key] = id;
+      }
+      worlds[dimension] = edits;
+      rebuildAll();
+      save();
+      return `Built ${kind} exhibit (${result.count} blocks) at ${x},${highest},${z}. Local world only.`;
+    }
+    return "No suitable free area found. Move into open terrain and try again.";
   }
 
   function nearestPortal() {
@@ -917,6 +954,7 @@ export function mountGame(
   opts.onHud(snapshot());
 
   const handle: GameHandle = {
+    buildComputeStructure,
     start() {
       started = true;
       paused = false;
