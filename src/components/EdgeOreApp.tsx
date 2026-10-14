@@ -177,7 +177,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!started) return;
-      if (e.code === "KeyE") {
+      if (e.code === "KeyE" && !term) {
         e.preventDefault();
         setPack((v) => {
           const next = !v;
@@ -185,11 +185,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
           return next;
         });
       }
-      if (e.code === "KeyF") {
+      if (e.code === "KeyF" && !term) {
         e.preventDefault();
         openTerminal();
       }
-      if (e.code === "KeyP") {
+      if (e.code === "KeyP" && !term && !pack) {
         if (e.repeat) return;
         e.preventDefault();
         enterPortalAndOpenGrid();
@@ -635,21 +635,21 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
       )}
 
       {term && (
-        <div className="absolute inset-0 z-30 flex items-end justify-center bg-bg/75 p-2 sm:items-center sm:p-4">
-          <div className="sheet flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-bg/85 p-2 backdrop-blur-sm sm:p-4">
+          <div className="sheet flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mint/35 shadow-2xl sm:max-h-[92dvh]" role="dialog" aria-modal="true" aria-label="ORE grid terminal">
             <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
               <div>
-                <h2 className="text-lg font-extrabold text-mint">ORE v4 Mining</h2>
+                <h2 className="text-base font-extrabold text-mint sm:text-lg">ORE GRID · PLAYTEST</h2>
                 <p className="font-mono text-[10px] text-muted">Program {short(ORE_PROGRAM_ID_STR)} · mainnet · not a second token</p>
               </div>
-              <div className="flex items-center gap-1 text-[11px] font-bold tracking-widest text-muted uppercase">Read only</div>
-              <button type="button" aria-label="Close terminal" onClick={closeOverlays}>
+              <span className="rounded-full border border-mint/40 bg-mint/10 px-2 py-1 text-[10px] font-bold tracking-wider text-mint uppercase">Read only</span>
+              <button type="button" aria-label="Close terminal and resume game" className="rounded-lg border border-line p-2 text-fg hover:border-mint focus-visible:outline-2 focus-visible:outline-mint" onClick={closeOverlays}>
                 <X />
               </button>
             </header>
-            <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_240px]">
+            <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto overscroll-contain p-3 sm:p-4 md:grid-cols-[minmax(0,1fr)_240px]">
               <div>
-                <div className="grid grid-cols-5 gap-1">
+                <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                   {Array.from({ length: 25 }, (_, i) => (
                     <div key={i} className="tile-btn">
                       <span className="block text-muted">#{i + 1}</span>
