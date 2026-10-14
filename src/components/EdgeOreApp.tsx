@@ -192,7 +192,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
       if (e.code === "KeyP") {
         if (e.repeat) return;
         e.preventDefault();
-        gameRef.current?.usePortal();
+        enterPortalAndOpenGrid();
       }
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -209,6 +209,18 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [started, term]);
+
+  /** Testing flow: world portal travel opens the informational ORE grid. */
+  function enterPortalAndOpenGrid() {
+    const game = gameRef.current;
+    if (!game || term || pack || !game.snapshot().portal) {
+      setToast("Walk into a glowing portal to open the ORE grid.");
+      return;
+    }
+    game.usePortal();
+    openTerminal();
+    setToast("ORE grid is read-only. No SOL is spent and no ORE is mined.");
+  }
 
   function openTerminal() {
     setTerm(true);
@@ -411,11 +423,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
           {snap.portal && !term && !pack && (
             <button
               type="button"
-              onClick={() => gameRef.current?.usePortal()}
+              onClick={enterPortalAndOpenGrid}
               className="absolute top-[54%] left-1/2 z-10 -translate-x-1/2 rounded-full border bg-bg/90 px-4 py-2 text-xs font-bold tracking-widest"
               style={{ borderColor: snap.portal.color, color: snap.portal.color }}
             >
-              [P] ENTER {snap.portal.toName}
+              [P] ENTER {snap.portal.toName} + ORE GRID
             </button>
           )}
           {near && !term && (
@@ -491,7 +503,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             onChange={(joyX, joyY) => gameRef.current?.setTouch({ joyX, joyY, lookDx: 0, lookDy: 0 })}
           />
           <div className="absolute right-4 bottom-6 flex flex-col items-end gap-3">
-            <button type="button" className="touch-btn" onClick={() => gameRef.current?.usePortal()}>
+            <button type="button" className="touch-btn" onClick={enterPortalAndOpenGrid}>
               PORTAL
             </button>
             <button type="button" className="touch-btn" onClick={openTerminal}>
