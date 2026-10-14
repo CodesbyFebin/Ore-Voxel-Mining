@@ -2,6 +2,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { decodeBoard, decodeMiner, decodeRound, decodeTreasury, formatOre } from "@/ore/codec";
 import {
   BOARD_ADDRESS,
+  ORE_PROGRAM_ID,
   ORE_MINT,
   RPC_URLS,
   TREASURY_ADDRESS,
@@ -60,7 +61,7 @@ function b64(data: string): Uint8Array {
   return out;
 }
 
-type AccountInfo = { data: [string, string] } | null;
+type AccountInfo = { data: [string, string]; owner: string; executable?: boolean } | null;
 
 async function rpcCall(method: string, params: unknown[]): Promise<{ url: string; result: unknown }> {
   let last = "Every public RPC refused the request";
@@ -103,19 +104,31 @@ export async function readChain(): Promise<ChainSnapshot> {
       snap.rpc = boardRes.url;
       return snap;
     }
+    if (boardAcc.owner !== ORE_PROGRAM_ID.toBase58() || boardAcc.executable) {
+      snap.reason = "Board account owner is not the expected ORE program";
+      snap.rpc = boardRes.url;
+      return snap;
+    }
     const board = decodeBoard(b64(boardAcc.data[0]));
     if (!board) {
       snap.reason = "Board account did not match the published layout";
       snap.rpc = boardRes.url;
       return snap;
     }
-    const treasury = treasuryAcc ? decodeTreasury(b64(treasuryAcc.data[0])) : null;
+    const treasury = treasuryAcc?.owner === ORE_PROGRAM_ID.toBase58() ? decodeTreasury(b64(treasuryAcc.data[0])) : null;
     const roundRes = await rpcCall("getAccountInfo", [
       roundPda(board.roundId).toBase58(),
       { encoding: "base64" },
     ]);
     const roundBody = roundRes.result as { value: AccountInfo };
-    const round = roundBody.value ? decodeRound(b64(roundBody.value.data[0])) : null;
+    const round = roundBody.value?.owner === ORE_PROGRAM_ID.toBase58()
+      ? decodeRound(b64(roundBody.value.data[0])) : null;
+    if (!round || round.id !== board.roundId) {
+      snap.reason = !round ? "Current round account missing or invalid" : "Round ID mismatch — refusing mixed-round grid data";
+      snap.rpc = boardRes.url;
+      snap.slot = slot;
+      return snap;
+    }
     const slotsLeft = slot === null ? null : Math.max(0, board.endSlot - slot);
     snap.ok = true;
     snap.reason = "";
@@ -128,9 +141,8 @@ export async function readChain(): Promise<ChainSnapshot> {
     snap.etaSec = slotsLeft === null ? null : Math.round(slotsLeft * 0.4);
     snap.motherlode = treasury ? formatOre(treasury.motherlodeRaw) : null;
     snap.solPerOre = board.productionLamports / 1e9;
-    snap.deployedSol = round?.deployedSol ?? null;
-    snap.roundSettled = round?.settled ?? null;
-    if (!round) snap.reason = "Round account unreadable";
+    snap.deployedSol = round.deployedSol;
+    snap.roundSettled = round.settled;
     return snap;
   } catch (err) {
     snap.reason = err instanceof Error ? err.message : "RPC failed";
