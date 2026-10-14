@@ -3,11 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { Landing } from "@/components/Landing";
 import { LiveBoard, freshEta, youDeployed } from "@/components/LiveBoard";
 import { Download, X } from "lucide-react";
+import { SandboxMarket } from "@/components/SandboxMarket";
+import { COMPUTE_STRUCTURES, type ComputeStructure } from "@/game/compute-structures";
 import { PICKAXES, block } from "@/game/blocks";
 import { FORGE } from "@/game/forge";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
 import type { ChainSnapshot, WalletBalances } from "@/ore/chain";
 import { ORE_PROGRAM_ID_STR } from "@/ore/codec";
+import { terminalCapabilities, type TerminalDimension } from "@/ore/terminal-tiers";
 import type { GateResult } from "@/ore/guard";
 import type { PreparedTx, WalletProvider } from "@/ore/tx";
 
@@ -83,6 +86,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [toast, setToast] = useState("");
   const [pack, setPack] = useState(false);
   const [term, setTerm] = useState(false);
+  const [marketOpen,setMarketOpen] = useState(false);
   const [receiptsOpen, setReceiptsOpen] = useState(false);
   const [chain, setChain] = useState<ChainSnapshot>(emptyChain);
   const [now, setNow] = useState(() => Date.now());
@@ -93,6 +97,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [review, setReview] = useState<Review | null>(null);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [guide, setGuide] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultCommit, setVaultCommit] = useState<string | null>(null);
   const [mobile, setMobile] = useState(false);
@@ -183,7 +188,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!started) return;
-      if (e.code === "KeyE") {
+      if (e.code === "KeyE" && !term) {
         e.preventDefault();
         setPack((v) => {
           const next = !v;
@@ -191,9 +196,15 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
           return next;
         });
       }
-      if (e.code === "KeyF") {
+      if (e.code === "KeyF" && !term) {
         e.preventDefault();
         openTerminal();
+      }
+      if (e.code === "KeyP" && !term && !pack) {
+        if (e.repeat) return;
+        e.preventDefault();
+        if (gameRef.current?.snapshot().shaft) return;
+        enterPortalAndOpenGrid();
       }
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -211,7 +222,20 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [started, term]);
 
+  /** Testing flow: world portal travel opens the informational ORE grid. */
+  function enterPortalAndOpenGrid() {
+    const game = gameRef.current;
+    if (!game || term || pack || !game.snapshot().portal) {
+      setToast("Walk into a glowing portal to open the ORE grid.");
+      return;
+    }
+    game.usePortal();
+    openTerminal();
+    setToast("ORE grid is read-only. No SOL is spent and no ORE is mined.");
+  }
+
   function openTerminal() {
+    setMarketOpen(false);
     setTerm(true);
     setPack(false);
     gameRef.current?.setPaused(true);
@@ -224,6 +248,8 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   }
 
   function closeOverlays() {
+    setBuilderOpen(false);
+    setMarketOpen(false);
     setPack(false);
     setTerm(false);
     setGuide(false);
@@ -299,6 +325,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const near = Boolean(snap?.nearTerminal);
   const shownChain = { ...chain, etaSec: freshEta(chain, now) };
   const yours = youDeployed(balances, shownChain.roundId);
+  const terminalView = terminalCapabilities((snap?.dimensionId === "ember" ? "ember" : snap?.dimensionId === "geode" ? "geode" : "valley") as TerminalDimension);
 
   return (
     <main className="shell">
@@ -358,6 +385,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                   Guide
                 </button>
               </div>
+              <button type="button" className="pointer-events-auto mt-2 text-[10px] font-bold tracking-widest text-mint uppercase" onClick={()=>{setBuilderOpen(true);gameRef.current?.setPaused(true);}}>Build Compute</button>
             </div>
             <div className="hud-card w-40">
               <div className="flex items-center justify-between">
@@ -459,11 +487,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
           {snap.portal && !term && !pack && !snap.shaft && (
             <button
               type="button"
-              onClick={() => gameRef.current?.usePortal()}
+              onClick={enterPortalAndOpenGrid}
               className="absolute top-[54%] left-1/2 z-10 -translate-x-1/2 rounded-full border bg-bg/90 px-4 py-2 text-xs font-bold tracking-widest"
               style={{ borderColor: snap.portal.color, color: snap.portal.color }}
             >
-              [P] ENTER {snap.portal.toName}
+              [P] ENTER {snap.portal.toName} + ORE GRID
             </button>
           )}
           {near && !term && (
@@ -543,7 +571,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               type="button"
               className="touch-btn"
               onPointerDown={() => gameRef.current?.setChannel(true)}
-              onPointerUp={() => gameRef.current?.setChannel(false)}
+              onPointerUp={() => {
+                const onShaft = Boolean(gameRef.current?.snapshot().shaft);
+                gameRef.current?.setChannel(false);
+                if (!onShaft) openTerminal();
+              }}
               onPointerLeave={() => gameRef.current?.setChannel(false)}
             >
               PORTAL
@@ -690,57 +722,51 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
         </div>
       )}
 
+      {builderOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-bg/85 p-3 backdrop-blur-sm">
+          <section className="sheet max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-cyan/40 p-5" role="dialog" aria-modal="true" aria-label="Compute structure world builder">
+            <div className="flex items-center justify-between"><h2 className="text-xl font-extrabold text-mint">COMPUTE STRUCTURES</h2><button type="button" className="rounded border border-line px-3 py-2" onClick={closeOverlays}>Close</button></div>
+            <p className="mt-2 text-sm text-muted">CraftGPT-inspired visual voxel exhibits. They are decorative educational structures, not a running language model. Builds are saved locally and never perform blockchain transactions.</p>
+            <div className="mt-4 grid gap-2">
+              {(Object.entries(COMPUTE_STRUCTURES) as Array<[ComputeStructure, (typeof COMPUTE_STRUCTURES)[ComputeStructure]]>).map(([kind, def]) => (
+                <button type="button" key={kind} className="rounded-lg border border-cyan/25 bg-surface p-3 text-left hover:border-mint" onClick={()=>{
+                  const msg = gameRef.current?.buildComputeStructure(kind) ?? "Game not initialized.";
+                  setToast(msg);setBuilderOpen(false);gameRef.current?.setPaused(false);
+                }}>
+                  <strong className="text-cyan">{def.label}</strong><span className="ml-2 text-xs text-muted">{def.description}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted">The builder requires a clear area and protects world terminals and portals. Five AI assistants are a separate future phase.</p>
+          </section>
+        </div>
+      )}
+
       {term && (
         <div className="absolute inset-0 z-30 flex items-end justify-center bg-bg/75 p-2 sm:items-center sm:p-4">
-          <div className="sheet flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden">
+          <div className="sheet flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden" role="dialog" aria-modal="true" aria-label="ORE grid terminal">
             <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
               <div>
-                <h2 className="text-lg font-extrabold text-mint">ORE v4 terminal</h2>
+                <h2 className="text-lg font-extrabold text-mint">ORE grid · tier {terminalView.tier}</h2>
                 <p className="font-mono text-[10px] text-muted">Live board · read-only · {short(ORE_PROGRAM_ID_STR)}</p>
               </div>
+              <button type="button" className="rounded-lg border border-cyan/50 px-2 py-2 text-[10px] font-bold text-cyan" onClick={() => setMarketOpen((v) => !v)}>
+                {marketOpen ? "ORE grid" : "Demo trade"}
+              </button>
               <button type="button" aria-label="Close terminal" onClick={closeOverlays}>
                 <X />
               </button>
             </header>
-            <div className="flex gap-2 border-b border-line px-4 py-2 text-[11px] font-bold tracking-widest uppercase">
-              {(["board", "strategy", "analytics"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className={termTab === tab ? "text-mint" : "text-muted"}
-                  onClick={() => setTermTab(tab)}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {termTab === "board" && (
-                <LiveBoard
-                  chain={shownChain}
-                  you={yours}
-                  layout="grid"
-                  tier={snap?.dimensionId === "ember" ? 3 : snap?.dimensionId === "geode" ? 2 : 1}
-                />
+              {marketOpen ? (
+                <SandboxMarket onClose={() => setMarketOpen(false)} />
+              ) : (
+                <LiveBoard chain={shownChain} you={yours} layout="grid" tier={terminalView.tier} />
               )}
-              {termTab === "strategy" && (
-                <div className="space-y-2 text-sm">
-                  <p>The 25 tiles are the live round. This screen does not pick a tile or send SOL.</p>
-                  <p className="text-muted">There is no auto mode. A highlighted tile, if any, only means it currently holds the most SOL. That is not a winner and not a payout.</p>
-                  <p className="text-muted">Miner coins, magma, and the forge stay in the game. They cannot be deployed.</p>
-                </div>
-              )}
-              {termTab === "analytics" && (
-                <div className="space-y-2 font-mono text-[12px]">
-                  <Stat k="Round" v={chain.roundId === null ? "Unavailable" : `#${chain.roundId}`} />
-                  <Stat k="Slot" v={chain.slot === null ? "Unavailable" : String(chain.slot)} />
-                  <Stat k="Round settled" v={chain.roundSettled === null ? "Unread" : chain.roundSettled ? "Yes" : "No"} />
-                  <Stat k="SOL per ORE" v={chain.solPerOre === null ? "Unread" : chain.solPerOre.toFixed(4)} />
-                  <Stat k="Your SOL" v={balances?.sol === null || balances?.sol === undefined ? "—" : balances.sol.toFixed(4)} />
-                  <Stat k="Your ORE" v={balances?.ore ?? "—"} />
-                  <Stat k="Gate" v="Closed" />
-                </div>
-              )}
+              <div className="mt-3 grid gap-2 font-mono text-[12px] sm:grid-cols-2">
+                <Stat k="Analytics" v={terminalView.historicalAnalytics ? "Verified history" : "History unavailable · not fabricated"} />
+                <Stat k="Simulation" v="Unavailable · transactions disabled" />
+              </div>
             </div>
             <footer className="relative z-10 border-t border-line bg-surface px-4 py-3">
               <div className="mb-2 rounded-lg border border-danger/70 p-2 text-[11px] leading-relaxed text-danger">

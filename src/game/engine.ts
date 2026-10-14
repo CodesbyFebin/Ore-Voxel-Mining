@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { PICKAXES, block } from "@/game/blocks";
+import { planStructure, type ComputeStructure } from "@/game/compute-structures";
+import { IndexedDBChunkStorage, CHUNK_EDGE, CHUNK_VOLUME, type ChunkRecordInput } from "@/game/storage/indexeddb-chunks";
+import { validPose, validMachines, type PlayerPose, type MachineEntity } from "@/game/storage/save-state";
 import { blockAtlas, meshChunk } from "@/game/mesher";
 import { traceVoxel } from "@/game/dda";
 import { DIMENSIONS, dimensionSeed, isDimensionId, type DimensionId } from "@/game/dimensions";
@@ -70,7 +73,9 @@ export type HudSnapshot = {
 export type TouchInput = { joyX: number; joyY: number; lookDx: number; lookDy: number };
 
 type SaveFile = {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
+  pose?: PlayerPose;
+  machines?: MachineEntity[];
   seed: number;
   coins: number;
   xp: number;
@@ -107,6 +112,7 @@ export type GameHandle = {
   forge: (id: string) => string;
   usePortal: () => string;
   setChannel: (held: boolean) => void;
+  buildComputeStructure: (kind: ComputeStructure) => string;
   snapshot: () => HudSnapshot;
   dispose: () => void;
 };
@@ -128,7 +134,7 @@ function loadSave(): SaveFile | null {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SaveFile;
-    if (data.v !== 1 && data.v !== 2) return null;
+    if (data.v !== 1 && data.v !== 2 && data.v !== 3) return null;
     return data;
   } catch {
     return null;
@@ -204,6 +210,15 @@ export function mountGame(
     vz: 0,
     onGround: false,
   };
+
+  if (saved?.pose && validPose(saved.pose, world)) {
+    player.x = saved.pose.x;
+    player.y = saved.pose.y;
+    player.z = saved.pose.z;
+    player.yaw = saved.pose.yaw;
+    player.pitch = saved.pose.pitch;
+  }
+  const machines: MachineEntity[] = validMachines(saved?.machines) ? saved!.machines!.map(m=>({...m,customData:{...m.customData}})) : [];
 
   const keys = new Set<string>();
   let override: Set<string> | null = null;
@@ -442,6 +457,41 @@ export function mountGame(
     for (let cz = 0; cz < CHUNKS_Z; cz++) for (let cx = 0; cx < CHUNKS_X; cx++) rebuild(cx, cz);
   }
 
+  function buildComputeStructure(kind: ComputeStructure): string {
+    if (!started) return "Start the game first.";
+    const candidates = [
+      [player.x + 13, player.z], [player.x - 13, player.z],
+      [player.x, player.z + 13], [player.x, player.z - 13],
+      [10, 10], [38, 10], [10, 38], [38, 38],
+    ];
+    for (const [cx, cz] of candidates) {
+      const x = Math.floor(cx), z = Math.floor(cz);
+      if (x < 7 || z < 7 || x >= WX - 7 || z >= WZ - 7) continue;
+      let highest = 1;
+      for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+        for (let y = WY - 2; y >= 1; y--) {
+          if (world.blocks[idx(x + dx, y, z + dz)] !== 0) {
+            highest = Math.max(highest, y + 1);
+            break;
+          }
+        }
+      }
+      const result = planStructure(world, kind, { x, y: highest, z }, player);
+      if (!result.ok) continue;
+      for (const [key, id] of Object.entries(result.edits)) {
+        const [xs, ys, zs] = key.split(",");
+        const bx = Number(xs), by = Number(ys), bz = Number(zs);
+        world.blocks[idx(bx, by, bz)] = id;
+        edits[key] = id;
+      }
+      worlds[dimension] = edits;
+      rebuildAll();
+      save();
+      return `Built ${kind} exhibit (${result.count} blocks) at ${x},${highest},${z}. Local world only.`;
+    }
+    return "No suitable free area found. Move into open terrain and try again.";
+  }
+
   function nearestPortal() {
     let best: (typeof world.portals)[number] | null = null;
     let bestDist = 3.1;
@@ -576,7 +626,6 @@ export function mountGame(
   let third = false;
   let channel = 0;
   let channelHeld = false;
-  let portalLatch = false;
   const miner = buildMiner();
   miner.group.visible = false;
   scene.add(miner.group);
@@ -609,9 +658,42 @@ export function mountGame(
     opts.onToast(msg);
   }
 
+  // Non-authoritative binary mirror. Existing localStorage edits and economy stay
+  // authoritative; restoring chunks requires a future explicit migration.
+  let chunkBackupTimer: ReturnType<typeof setTimeout> | null = null;
+  const chunkStorage = typeof indexedDB === "undefined" ? null : new IndexedDBChunkStorage();
+  let backupChain: Promise<void> = Promise.resolve();
+  function flushChunkBackup() {
+    if (!chunkStorage) return;
+    if (chunkBackupTimer) { clearTimeout(chunkBackupTimer); chunkBackupTimer = null; }
+    const currentDimension = dimension;
+    const chunks: ChunkRecordInput[] = [];
+    for (let cy = 0; cy < Math.ceil(WY / CHUNK_EDGE); cy++) {
+      for (let cz = 0; cz < Math.ceil(WZ / CHUNK_EDGE); cz++) {
+        for (let cx = 0; cx < Math.ceil(WX / CHUNK_EDGE); cx++) {
+          const blockIds = new Uint8Array(CHUNK_VOLUME);
+          for (let ly = 0; ly < CHUNK_EDGE; ly++) for (let lz = 0; lz < CHUNK_EDGE; lz++) for (let lx = 0; lx < CHUNK_EDGE; lx++) {
+            const x = cx * CHUNK_EDGE + lx, y = cy * CHUNK_EDGE + ly, z = cz * CHUNK_EDGE + lz;
+            if (x < WX && y < WY && z < WZ) blockIds[lx + lz * CHUNK_EDGE + ly * CHUNK_EDGE * CHUNK_EDGE] = world.blocks[idx(x,y,z)];
+          }
+          chunks.push({ world: `seed:${seed}:dimension:${currentDimension}`, x: cx, y: cy, z: cz, blockIds });
+        }
+      }
+    }
+    backupChain = backupChain.catch(() => undefined).then(() => chunkStorage.saveChunksBatch(chunks));
+    void backupChain.catch(() => { /* localStorage remains authoritative */ });
+  }
+  function scheduleChunkBackup() {
+    if (!chunkStorage) return;
+    if (chunkBackupTimer) clearTimeout(chunkBackupTimer);
+    chunkBackupTimer = setTimeout(flushChunkBackup, 700);
+  }
+
   function save() {
     const file: SaveFile = {
-      v: 2,
+      v: 3,
+      pose: {x:player.x,y:player.y,z:player.z,yaw:player.yaw,pitch:player.pitch},
+      machines,
       seed,
       coins,
       xp,
@@ -628,6 +710,7 @@ export function mountGame(
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(file));
+      scheduleChunkBackup();
     } catch {
       /* quota */
     }
@@ -1050,6 +1133,7 @@ export function mountGame(
   let raf = 0;
   let alive = true;
 
+  let lastPositionSave = 0;
   function frame(now: number) {
     if (!alive) return;
     raf = requestAnimationFrame(frame);
@@ -1064,6 +1148,10 @@ export function mountGame(
     }
     updateMine(dt);
     tickShaft(dt);
+    if (started && !paused && now - lastPositionSave > 5000) {
+      lastPositionSave = now;
+      save();
+    }
     camera.position.set(player.x, player.y + EYE, player.z);
     camera.rotation.order = "YXZ";
     if (third) {
@@ -1141,15 +1229,7 @@ export function mountGame(
     }
   }
   function onKeyUp(e: KeyboardEvent) {
-    const wasPortal = e.code === "KeyP" && keys.has("KeyP");
     keys.delete(e.code);
-    if (wasPortal && channel < 0.2 && !nearShaft() && !portalLatch) {
-      portalLatch = true;
-      usePortal();
-      window.setTimeout(() => {
-        portalLatch = false;
-      }, 400);
-    }
     if (e.code === "KeyP") channel = 0;
   }
   function onMouseDown(e: MouseEvent) {
@@ -1172,6 +1252,7 @@ export function mountGame(
     e.preventDefault();
   }
   function onBlur() {
+    save();
     keys.clear();
     miningHeld = false;
     jumpHeld = false;
@@ -1193,11 +1274,11 @@ export function mountGame(
   opts.onHud(snapshot());
 
   const handle: GameHandle = {
+    buildComputeStructure,
     start() {
       started = true;
       paused = false;
-      player.yaw = 0;
-      player.pitch = 0;
+      if (!saved?.pose || !validPose(saved.pose, world)) { player.yaw = 0; player.pitch = 0; }
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (Ctx && !audio) {
         audio = new Ctx();
@@ -1362,6 +1443,8 @@ export function mountGame(
       window.removeEventListener("mousemove", onMouseMove);
       canvas.removeEventListener("contextmenu", onContext);
       save();
+      flushChunkBackup();
+      void backupChain.finally(() => chunkStorage?.close());
       for (const mesh of chunkMeshes.values()) mesh.geometry.dispose();
       atlas.dispose();
       material.dispose();
