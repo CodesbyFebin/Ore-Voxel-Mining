@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Landing } from "@/components/Landing";
 import { Download, X } from "lucide-react";
 import { SandboxMarket } from "@/components/SandboxMarket";
+import { COMPUTE_STRUCTURES, type ComputeStructure } from "@/game/compute-structures";
 import { PICKAXES, block } from "@/game/blocks";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
 import type { ChainSnapshot, WalletBalances } from "@/ore/chain";
@@ -92,6 +93,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [review, setReview] = useState<Review | null>(null);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [guide, setGuide] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultCommit, setVaultCommit] = useState<string | null>(null);
   const [mobile, setMobile] = useState(false);
@@ -238,6 +240,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   }
 
   function closeOverlays() {
+    setBuilderOpen(false);
     setMarketOpen(false);
     setPack(false);
     setTerm(false);
@@ -342,6 +345,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               >
                 Guide
               </button>
+              <button type="button" className="pointer-events-auto mt-2 text-[10px] font-bold tracking-widest text-mint uppercase" onClick={()=>{setBuilderOpen(true);gameRef.current?.setPaused(true);}}>Build Compute</button>
             </div>
             <div className="hud-card w-40">
               <div className="flex items-center justify-between">
@@ -635,6 +639,26 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {builderOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-bg/85 p-3 backdrop-blur-sm">
+          <section className="sheet max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-cyan/40 p-5" role="dialog" aria-modal="true" aria-label="Compute structure world builder">
+            <div className="flex items-center justify-between"><h2 className="text-xl font-extrabold text-mint">COMPUTE STRUCTURES</h2><button type="button" className="rounded border border-line px-3 py-2" onClick={closeOverlays}>Close</button></div>
+            <p className="mt-2 text-sm text-muted">CraftGPT-inspired visual voxel exhibits. They are decorative educational structures, not a running language model. Builds are saved locally and never perform blockchain transactions.</p>
+            <div className="mt-4 grid gap-2">
+              {(Object.entries(COMPUTE_STRUCTURES) as Array<[ComputeStructure, (typeof COMPUTE_STRUCTURES)[ComputeStructure]]>).map(([kind, def]) => (
+                <button type="button" key={kind} className="rounded-lg border border-cyan/25 bg-surface p-3 text-left hover:border-mint" onClick={()=>{
+                  const msg = gameRef.current?.buildComputeStructure(kind) ?? "Game not initialized.";
+                  setToast(msg);setBuilderOpen(false);gameRef.current?.setPaused(false);
+                }}>
+                  <strong className="text-cyan">{def.label}</strong><span className="ml-2 text-xs text-muted">{def.description}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted">The builder requires a clear area and protects world terminals and portals. Five AI assistants are a separate future phase.</p>
+          </section>
         </div>
       )}
 
