@@ -34,3 +34,12 @@ Relevant upstream files:
 ## Important product copy
 
 Breaking voxel blocks earns **only virtual game resources**, not ORE cryptocurrency. Visual demonstrations of trading and staking **do not transact on Solana**, yield rewards or imply protocol endorsement. All real spending, claiming and signing remains disabled.
+
+
+## Audit-spec compatibility notes (2026-10-15)
+
+The contributed specification is a release-gate checklist, **not verified instruction/account data**. Its illustrative Anchor snippets and six-account Deploy layout must **not** be implemented verbatim. The inspected ORE source uses Steel APIs and a Deploy flow that splits 10 ORE accounts from entropy accounts; the current board and round data must be validated against their actual upstream structs, not assumed to be an Anchor 8-byte SHA-256 discriminator or a board-embedded 25-tile array.
+
+Source attestation remains **INCOMPLETE**: no pinned 40-character upstream source SHA, deployed program binary verification, deterministic build hash, historical transaction fixture, or release audit has been established by this document. The provided native pseudo-code contained a placeholder `mineRHF...` program ID, which is not an approved runtime identifier. The Rust background-worker example also constructs Godot PackedArrays off the main thread; an implementation should return plain Rust-owned vertex/index buffers to the main thread instead and instantiate Godot engine objects there.
+
+The bridge stays in READ-ONLY / FAIL-CLOSED mode. No wallet keys, session signers or state-changing Solana instructions are supplied by this work.
