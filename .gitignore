@@ -1,0 +1,12 @@
+node_modules
+dist
+.output
+.vinxi
+.vercel
+.env
+.env.*
+*.log
+.DS_Store
+attachments
+artifacts
+screenshots

@@ -1,0 +1,141 @@
+/*
+  EdgeORE wallet-approval and receipt protocol.
+
+  This is a model of the client policy, not a proof of the ORE program.
+  It does not pin an ORE instruction layout and it does not open the
+  financial gate by itself. A gate opens only after a fixture is pinned.
+
+  Properties:
+    - no signature without a prior approval of that same message
+    - a signature is only produced after the gate has opened
+    - a verified receipt requires approval, an honest signature, a clean
+      chain result, and a byte match, all for the same message
+    - the same message is receipted at most once
+    - a game-coin event is not a verified receipt
+
+  Run: bash security/tamarin/run.sh
+  A signature, chain result, and byte match are bound to the approving
+  player. An unbound signature of the same message was a counterexample.
+
+*/
+
+theory EdgeORE_Approval
+begin
+
+builtins: hashing, signing
+
+rule CreateWallet:
+  [ Fr(~ltk) ]
+  --[ ]->
+  [ !Ltk($W, ~ltk)
+  , !Pk($W, pk(~ltk))
+  ]
+
+rule PinFixture:
+  [ Fr(~fixture) ]
+  --[ FixturePinned(~fixture) ]->
+  [ !Fixture(~fixture) ]
+
+rule OpenGate:
+  [ !Fixture(~fixture) ]
+  --[ GateOpened() ]->
+  [ !Gate() ]
+
+rule Review:
+  [ !Gate()
+  , In(<$P, $W, m>)
+  ]
+  --[ Reviewed($P, m) ]->
+  [ Pending($P, $W, m) ]
+
+rule Approve:
+  [ Pending($P, $W, m) ]
+  --[ DidApprove($P, m) ]->
+  [ !Approval($P, $W, m) ]
+
+rule Reject:
+  [ Pending($P, $W, m) ]
+  --[ DidReject($P, m) ]->
+  []
+
+rule Sign:
+  [ !Approval($P, $W, m)
+  , !Ltk($W, ~ltk)
+  , !Gate()
+  ]
+  --[ DidSign($P, m) ]->
+  [ !Sig($P, $W, m, sign(m, ~ltk))
+  , Out(<$P, m, sign(m, ~ltk)>)
+  ]
+
+rule ChainAccepts:
+  [ !Sig($P, $W, m, sig)
+  , In(sig)
+  ]
+  --[ DidChainOk($P, m) ]->
+  [ ChainOk($P, m) ]
+
+rule ChainRejects:
+  [ !Sig($P, $W, m, sig) ]
+  --[ DidChainErr($P, m) ]->
+  []
+
+rule BytesMatch:
+  [ !Sig($P, $W, m, sig) ]
+  --[ DidMatch($P, m) ]->
+  [ BytesMatch($P, m) ]
+
+rule StoreVerifiedReceipt:
+  [ !Sig($P, $W, m, sig)
+  , ChainOk($P, m)
+  , BytesMatch($P, m)
+  , !Approval($P, $W, m)
+  ]
+  --[ DidVerify($P, m)
+     , ReceiptOnce($P, m)
+     ]->
+  [ Receipt($P, m) ]
+
+rule MineGame:
+  [ In($P) ]
+  --[ DidMine($P) ]->
+  [ GameCoin($P) ]
+
+restriction ReceiptUnique:
+  "All P m #i #j.
+     ReceiptOnce(P, m) @ #i & ReceiptOnce(P, m) @ #j
+     ==> #i = #j"
+
+lemma executable_honest:
+  exists-trace
+  "Ex P m #i. DidVerify(P, m) @ #i"
+
+lemma no_sign_without_approval:
+  "All P m #i.
+     DidSign(P, m) @ #i
+     ==> (Ex #j. DidApprove(P, m) @ #j & #j < #i)"
+
+lemma sign_requires_open_gate:
+  "All P m #i.
+     DidSign(P, m) @ #i
+     ==> (Ex #j. GateOpened() @ #j & #j < #i)"
+
+lemma verified_requires_every_check:
+  "All P m #i.
+     DidVerify(P, m) @ #i
+     ==> (Ex #a. DidApprove(P, m) @ #a & #a < #i)
+       & (Ex #s. DidSign(P, m) @ #s & #s < #i)
+       & (Ex #c. DidChainOk(P, m) @ #c & #c < #i)
+       & (Ex #b. DidMatch(P, m) @ #b & #b < #i)"
+
+lemma no_double_receipt:
+  "All P m #i #j.
+     DidVerify(P, m) @ #i & DidVerify(P, m) @ #j
+     ==> #i = #j"
+
+lemma game_coin_is_not_a_receipt:
+  "All P #i.
+     DidMine(P) @ #i
+     ==> not (Ex m #j. DidVerify(P, m) @ #j & #i = #j)"
+
+end

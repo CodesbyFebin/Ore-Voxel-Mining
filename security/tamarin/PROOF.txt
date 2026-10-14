@@ -1,0 +1,15 @@
+Machine-checked with tamarin-prover 1.12.0 and Maude 3.5.1.
+Wellformedness checks succeeded. Processing time about 1 second.
+
+  executable_honest (exists-trace): verified (7 steps)
+  no_sign_without_approval (all-traces): verified (3 steps)
+  sign_requires_open_gate (all-traces): verified (3 steps)
+  verified_requires_every_check (all-traces): verified (13 steps)
+  no_double_receipt (all-traces): verified (2 steps)
+  game_coin_is_not_a_receipt (all-traces): verified (1 steps)
+
+An earlier model left the signature unbound from the approving player.
+verified_requires_every_check was falsified: one player's approval could be
+paired with another player's signature of the same message. The signature,
+chain result, and byte match are now tied to that player. This proves the
+model, not the ORE program.
