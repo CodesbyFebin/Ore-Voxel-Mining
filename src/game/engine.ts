@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { PICKAXES, block } from "@/game/blocks";
 import { planStructure, type ComputeStructure } from "@/game/compute-structures";
 import { IndexedDBChunkStorage, CHUNK_EDGE, CHUNK_VOLUME, type ChunkRecordInput } from "@/game/storage/indexeddb-chunks";
+import { validPose, validMachines, type PlayerPose, type MachineEntity } from "@/game/storage/save-state";
 import { blockAtlas, meshChunk } from "@/game/mesher";
 import { traceVoxel } from "@/game/dda";
 import { DIMENSIONS, dimensionSeed, isDimensionId, type DimensionId } from "@/game/dimensions";
@@ -60,7 +61,9 @@ export type HudSnapshot = {
 export type TouchInput = { joyX: number; joyY: number; lookDx: number; lookDy: number };
 
 type SaveFile = {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
+  pose?: PlayerPose;
+  machines?: MachineEntity[];
   seed: number;
   coins: number;
   xp: number;
@@ -112,7 +115,7 @@ function loadSave(): SaveFile | null {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SaveFile;
-    if (data.v !== 1 && data.v !== 2) return null;
+    if (data.v !== 1 && data.v !== 2 && data.v !== 3) return null;
     return data;
   } catch {
     return null;
@@ -167,6 +170,15 @@ export function mountGame(
     vz: 0,
     onGround: false,
   };
+
+  if (saved?.pose && validPose(saved.pose, world)) {
+    player.x = saved.pose.x;
+    player.y = saved.pose.y;
+    player.z = saved.pose.z;
+    player.yaw = saved.pose.yaw;
+    player.pitch = saved.pose.pitch;
+  }
+  const machines: MachineEntity[] = validMachines(saved?.machines) ? saved!.machines!.map(m=>({...m,customData:{...m.customData}})) : [];
 
   const keys = new Set<string>();
   let override: Set<string> | null = null;
@@ -528,7 +540,9 @@ export function mountGame(
 
   function save() {
     const file: SaveFile = {
-      v: 2,
+      v: 3,
+      pose: {x:player.x,y:player.y,z:player.z,yaw:player.yaw,pitch:player.pitch},
+      machines,
       seed,
       coins,
       xp,
@@ -888,6 +902,7 @@ export function mountGame(
   let raf = 0;
   let alive = true;
 
+  let lastPositionSave = 0;
   function frame(now: number) {
     if (!alive) return;
     raf = requestAnimationFrame(frame);
@@ -901,6 +916,10 @@ export function mountGame(
       steps++;
     }
     updateMine(dt);
+    if (started && !paused && now - lastPositionSave > 5000) {
+      lastPositionSave = now;
+      save();
+    }
     camera.position.set(player.x, player.y + EYE, player.z);
     camera.rotation.order = "YXZ";
     camera.rotation.y = player.yaw;
@@ -969,6 +988,7 @@ export function mountGame(
     e.preventDefault();
   }
   function onBlur() {
+    save();
     keys.clear();
     miningHeld = false;
     jumpHeld = false;
@@ -991,8 +1011,7 @@ export function mountGame(
     start() {
       started = true;
       paused = false;
-      player.yaw = 0;
-      player.pitch = 0;
+      if (!saved?.pose || !validPose(saved.pose, world)) { player.yaw = 0; player.pitch = 0; }
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (Ctx && !audio) {
         audio = new Ctx();
