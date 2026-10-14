@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { PICKAXES, block } from "@/game/blocks";
 import { planStructure, type ComputeStructure } from "@/game/compute-structures";
+import { IndexedDBChunkStorage, CHUNK_EDGE, CHUNK_VOLUME, type ChunkRecordInput } from "@/game/storage/indexeddb-chunks";
 import { blockAtlas, meshChunk } from "@/game/mesher";
 import { traceVoxel } from "@/game/dda";
 import { DIMENSIONS, dimensionSeed, isDimensionId, type DimensionId } from "@/game/dimensions";
@@ -494,6 +495,37 @@ export function mountGame(
     opts.onToast(msg);
   }
 
+  // Non-authoritative binary mirror. Existing localStorage edits and economy stay
+  // authoritative; restoring chunks requires a future explicit migration.
+  let chunkBackupTimer: ReturnType<typeof setTimeout> | null = null;
+  const chunkStorage = typeof indexedDB === "undefined" ? null : new IndexedDBChunkStorage();
+  let backupChain: Promise<void> = Promise.resolve();
+  function flushChunkBackup() {
+    if (!chunkStorage) return;
+    if (chunkBackupTimer) { clearTimeout(chunkBackupTimer); chunkBackupTimer = null; }
+    const currentDimension = dimension;
+    const chunks: ChunkRecordInput[] = [];
+    for (let cy = 0; cy < Math.ceil(WY / CHUNK_EDGE); cy++) {
+      for (let cz = 0; cz < Math.ceil(WZ / CHUNK_EDGE); cz++) {
+        for (let cx = 0; cx < Math.ceil(WX / CHUNK_EDGE); cx++) {
+          const blockIds = new Uint8Array(CHUNK_VOLUME);
+          for (let ly = 0; ly < CHUNK_EDGE; ly++) for (let lz = 0; lz < CHUNK_EDGE; lz++) for (let lx = 0; lx < CHUNK_EDGE; lx++) {
+            const x = cx * CHUNK_EDGE + lx, y = cy * CHUNK_EDGE + ly, z = cz * CHUNK_EDGE + lz;
+            if (x < WX && y < WY && z < WZ) blockIds[lx + lz * CHUNK_EDGE + ly * CHUNK_EDGE * CHUNK_EDGE] = world.blocks[idx(x,y,z)];
+          }
+          chunks.push({ world: `seed:${seed}:dimension:${currentDimension}`, x: cx, y: cy, z: cz, blockIds });
+        }
+      }
+    }
+    backupChain = backupChain.catch(() => undefined).then(() => chunkStorage.saveChunksBatch(chunks));
+    void backupChain.catch(() => { /* localStorage remains authoritative */ });
+  }
+  function scheduleChunkBackup() {
+    if (!chunkStorage) return;
+    if (chunkBackupTimer) clearTimeout(chunkBackupTimer);
+    chunkBackupTimer = setTimeout(flushChunkBackup, 700);
+  }
+
   function save() {
     const file: SaveFile = {
       v: 2,
@@ -512,6 +544,7 @@ export function mountGame(
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(file));
+      scheduleChunkBackup();
     } catch {
       /* quota */
     }
@@ -1068,6 +1101,8 @@ export function mountGame(
       window.removeEventListener("mousemove", onMouseMove);
       canvas.removeEventListener("contextmenu", onContext);
       save();
+      flushChunkBackup();
+      void backupChain.finally(() => chunkStorage?.close());
       for (const mesh of chunkMeshes.values()) mesh.geometry.dispose();
       atlas.dispose();
       material.dispose();
