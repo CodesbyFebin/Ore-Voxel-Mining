@@ -1,5 +1,6 @@
 import { AIR, BLOCKS } from "./blocks.ts";
 import { type DimensionId, DIMENSIONS, portalPlans } from "./dimensions.ts";
+import { shaftColumn } from "./shaft.ts";
 
 export const WX = 48;
 export const WY = 24;
@@ -61,13 +62,14 @@ export type WorldData = {
   terminal: { x: number; y: number; z: number };
   vault: { x: number; y: number; z: number };
   portals: PortalSite[];
+  shaft: { x: number; y: number; z: number };
 };
 
 function set(buf: Uint8Array, x: number, y: number, z: number, id: number) {
   if (inWorld(x, y, z)) buf[idx(x, y, z)] = id;
 }
 
-export function generateWorld(seed: number, dimension: DimensionId = "valley"): WorldData {
+export function generateWorld(seed: number, dimension: DimensionId = "valley", layoutSeed = seed): WorldData {
   const blocks = new Uint8Array(WX * WY * WZ);
   const surface = new Int16Array(WX * WZ);
   for (let z = 0; z < WZ; z++) {
@@ -87,18 +89,14 @@ export function generateWorld(seed: number, dimension: DimensionId = "valley"): 
         else if (y === h) id = river < 1.6 ? 15 : 1;
         if (id === 3 || id === 2) {
           const depth = h - y;
-          const r = hash(x, y, z, seed + 7);
-          if (depth > 3 && r < 0.045) id = 4;
-          else if (depth > 5 && r < 0.03) id = 5;
-          else if (depth > 6 && r < 0.022) id = 6;
-          else if (depth > 8 && r < 0.012) id = 7;
-          else if (depth > 9 && r < 0.008) id = 8;
-          else if (depth > 11 && r < 0.004) id = 9;
-          else if (depth > 12 && r < 0.003) id = 10;
-          else if (depth > 7 && hash(x, y, z, seed + 11) < (z > 30 ? 0.02 : 0.008)) id = 11;
-          else if (x > 32 && depth > 4 && hash(x, y, z, seed + 41) < 0.018) id = 7;
-          else if (depth > 10 && hash(x, y, z, seed + 13) < 0.0035) id = 12;
-          else if (depth > 13 && hash(x, y, z, seed + 17) < 0.004) id = 16;
+          const ore = rollOre(dimension, depth, x, y, z, seed);
+          if (ore) {
+            id = ore;
+            if (hash(x + 1, y, z, seed + 51) < 0.55 && inWorld(x + 1, y, z)) {
+              const neighbor = blocks[idx(x + 1, y, z)];
+              if (neighbor === 2 || neighbor === 3) blocks[idx(x + 1, y, z)] = ore;
+            }
+          }
         }
         if (y > 1 && y < h - 2 && id !== 17) {
           const cave = hash(x, y, z, seed + 23);
@@ -115,8 +113,12 @@ export function generateWorld(seed: number, dimension: DimensionId = "valley"): 
     const tz = 2 + Math.floor(hash(i, 2, 0, seed) * (WZ - 4));
     if (tx > 6 && tx < 16 && tz > 18 && tz < 30) continue;
     const h = surface[tx + tz * WX];
-    if (blocks[idx(tx, h, tz)] !== 1) continue;
-    if (i % 2 === 0) {
+    if (blocks[idx(tx, h, tz)] !== 1 && dimension !== "ember") continue;
+    if (dimension === "ember") {
+      for (let y = 1; y <= 4; y++) set(blocks, tx, h + y, tz, y === 4 ? 22 : 7);
+      continue;
+    }
+    if (dimension === "geode" || i % 2 === 0) {
       const top = h + 4;
       if (top >= WY) continue;
       for (let y = 1; y <= 3; y++) set(blocks, tx, h + y, tz, y === 3 ? 11 : 3);
@@ -151,14 +153,126 @@ export function generateWorld(seed: number, dimension: DimensionId = "valley"): 
     }
   }
 
+  decorateDimension(blocks, surface, seed, dimension);
+
   const services = DIMENSIONS[dimension].services;
   const terminal = services ? stampTerminal(blocks, surface) : { x: 0, y: -20, z: 0 };
   const vault = services ? stampVault(blocks) : { x: 0, y: -20, z: 0 };
   carvePortalPads(blocks, dimension);
+  const shaft = carveShaft(blocks, dimension, layoutSeed);
   const portals = portalSites(blocks, dimension);
   const generated = blocks.slice();
   const spawn = carveSpawn(blocks, generated);
-  return { seed, dimension, services, generated, blocks, spawn, terminal, vault, portals };
+  return { seed, dimension, services, generated, blocks, spawn, terminal, vault, portals, shaft };
+}
+
+function rollOre(dimension: DimensionId, depth: number, x: number, y: number, z: number, seed: number): number {
+  const r = hash(x, y, z, seed + 7);
+  if (dimension === "geode") {
+    if (depth > 5 && r < 0.028) return 16;
+    if (depth > 4 && r < 0.07) return 11;
+    if (depth > 8 && r < 0.082) return 9;
+    if (depth > 3 && r < 0.11) return 4;
+    return 0;
+  }
+  if (dimension === "ember") {
+    if (depth > 4 && r < 0.014) return 8;
+    if (depth > 2 && r < 0.055) return 7;
+    if (depth > 5 && r < 0.075) return 5;
+    if (depth > 6 && r < 0.09) return 6;
+    return 0;
+  }
+  if (depth > 3 && r < 0.045) return 4;
+  if (depth > 5 && r < 0.03) return 5;
+  if (depth > 6 && r < 0.022) return 6;
+  if (depth > 8 && r < 0.012) return 7;
+  if (depth > 9 && r < 0.008) return 8;
+  if (depth > 11 && r < 0.004) return 9;
+  if (depth > 12 && r < 0.003) return 10;
+  if (depth > 7 && hash(x, y, z, seed + 11) < (z > 30 ? 0.02 : 0.008)) return 11;
+  if (x > 32 && depth > 4 && hash(x, y, z, seed + 41) < 0.018) return 7;
+  if (depth > 10 && hash(x, y, z, seed + 13) < 0.0035) return 12;
+  if (depth > 13 && hash(x, y, z, seed + 17) < 0.004) return 16;
+  return 0;
+}
+
+function decorateDimension(blocks: Uint8Array, surface: Int16Array, seed: number, dimension: DimensionId) {
+  for (let i = 0; i < 4; i++) {
+    const x = 6 + Math.floor(hash(i, 2, 9, seed) * (WX - 12));
+    const z = 6 + Math.floor(hash(i, 3, 9, seed) * (WZ - 12));
+    if (Math.hypot(x - 24, z - 24) < 8) continue;
+    const h = surface[x + z * WX] ?? 10;
+    const y = Math.max(3, h - 7);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        for (let dz = -3; dz <= 3; dz++) {
+          if ((dx * dx) / 9 + (dy * dy) / 4 + (dz * dz) / 9 > 1) continue;
+          if (!inWorld(x + dx, y + dy, z + dz)) continue;
+          const here = blocks[idx(x + dx, y + dy, z + dz)];
+          if (here === 17 || here === 18 || here === 19) continue;
+          set(blocks, x + dx, y + dy, z + dz, AIR);
+        }
+      }
+    }
+  }
+  if (dimension === "geode") {
+    for (let i = 0; i < 8; i++) {
+      const x = 4 + Math.floor(hash(i, 9, 1, seed) * (WX - 8));
+      const z = 4 + Math.floor(hash(i, 9, 2, seed) * (WZ - 8));
+      const h = surface[x + z * WX] ?? 8;
+      const y = Math.max(3, h - 5);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          for (let dz = -2; dz <= 2; dz++) {
+            const dist = dx * dx + dy * dy + dz * dz;
+            if (dist > 8 || !inWorld(x + dx, y + dy, z + dz)) continue;
+            const here = blocks[idx(x + dx, y + dy, z + dz)];
+            if (here === 17 || here === 18 || here === 19) continue;
+            set(blocks, x + dx, y + dy, z + dz, dist <= 2 ? AIR : dist <= 5 ? 11 : 16);
+          }
+        }
+      }
+      if (inWorld(x + 1, y, z) && blocks[idx(x + 1, y, z)] !== 17) set(blocks, x + 1, y, z, 23);
+    }
+  }
+  if (dimension === "ember") {
+    for (let i = 0; i < 16; i++) {
+      const x = 3 + Math.floor(hash(i, 4, 8, seed) * (WX - 6));
+      const z = 3 + Math.floor(hash(i, 5, 8, seed) * (WZ - 6));
+      if (Math.hypot(x - 24, z - 24) < 6) continue;
+      const h = surface[x + z * WX] ?? 6;
+      const y = Math.max(1, Math.min(h, 7));
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (!inWorld(x + dx, y, z + dz)) continue;
+          const here = blocks[idx(x + dx, y, z + dz)];
+          if (here === 17 || here === 18 || here === 19) continue;
+          set(blocks, x + dx, y, z + dz, 22);
+        }
+      }
+    }
+  }
+}
+
+function carveShaft(blocks: Uint8Array, dimension: DimensionId, layoutSeed: number): { x: number; y: number; z: number } {
+  const column = shaftColumn(layoutSeed);
+  const floor = Math.max(2, Math.min(groundAt(blocks, column.x, column.z), 14));
+  const rim = dimension === "ember" ? 7 : dimension === "geode" ? 16 : 11;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const x = column.x + dx;
+      const z = column.z + dz;
+      if (!inWorld(x, floor, z)) continue;
+      for (let y = floor; y < Math.min(WY - 1, floor + 5); y++) {
+        const here = blocks[idx(x, y, z)];
+        if (here === 17 || here === 18 || here === 19) continue;
+        set(blocks, x, y, z, AIR);
+      }
+      if (dx !== 0 || dz !== 0) set(blocks, x, floor - 1, z, rim);
+      else if (blocks[idx(x, floor - 1, z)] !== 17) set(blocks, x, floor - 1, z, 2);
+    }
+  }
+  return { x: column.x + 0.5, y: floor + 0.05, z: column.z + 0.5 };
 }
 
 function groundAt(blocks: Uint8Array, x: number, z: number): number {

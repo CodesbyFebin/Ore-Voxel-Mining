@@ -33,6 +33,8 @@ export type WalletBalances = {
   claimableSol: number | null;
   claimableOre: string | null;
   minerFound: boolean;
+  /** SOL on each tile for `minerRound`. Null when the miner account did not decode. */
+  deployedSol: number[] | null;
   reason: string | null;
 };
 
@@ -150,6 +152,7 @@ export async function readWallet(address: string): Promise<WalletBalances> {
     claimableSol: null,
     claimableOre: null,
     minerFound: false,
+    deployedSol: null,
     reason: null,
   };
   try {
@@ -170,6 +173,7 @@ export async function readWallet(address: string): Promise<WalletBalances> {
       const decoded = decodeMiner(new Uint8Array(minerInfo.data));
       if (decoded) {
         out.minerRound = decoded.roundId;
+        out.deployedSol = decoded.deployedSol;
         out.claimableSol = decoded.rewardsSol;
         out.claimableOre = formatOre(decoded.rewardsOreRaw);
       } else {

@@ -35,6 +35,14 @@ export const BLOCKS: BlockDef[] = [
   { id: 19, name: "Entropy Vault", color: "#062a38", speck: "#00e5d4", hardness: Infinity, tier: 99, coins: 0, drop: 0, placeable: false },
   { id: 20, name: "Amethyst Gate", color: "#3a1860", speck: "#c084fc", hardness: Infinity, tier: 99, coins: 0, drop: 0, placeable: false },
   { id: 21, name: "Ember Gate", color: "#5a240e", speck: "#ff8833", hardness: Infinity, tier: 99, coins: 0, drop: 0, placeable: false },
+  { id: 22, name: "Magma", color: "#7a2208", speck: "#ffb703", hardness: 1.15, tier: 1, coins: 4, drop: 22, placeable: true },
+  { id: 23, name: "Relic", color: "#4a2080", speck: "#ffd56a", hardness: 3.1, tier: 4, coins: 0, drop: 23, placeable: false },
+  { id: 24, name: "Bunker plate", color: "#1a2420", speck: "#8aa899", hardness: 4.2, tier: 2, coins: 0, drop: 24, placeable: true },
+  { id: 25, name: "Lantern", color: "#3a3010", speck: "#ffe08a", hardness: 0.4, tier: 0, coins: 0, drop: 25, placeable: true },
+  { id: 26, name: "Medkit", color: "#6a2030", speck: "#ff8aa0", hardness: 0.2, tier: 0, coins: 0, drop: 26, placeable: false },
+  { id: 27, name: "Crystal key", color: "#0e4e62", speck: "#b8fff0", hardness: 0.4, tier: 0, coins: 0, drop: 27, placeable: false },
+  { id: 28, name: "Amethyst core", color: "#3a1860", speck: "#e9d5ff", hardness: 0.4, tier: 0, coins: 0, drop: 28, placeable: false },
+  { id: 29, name: "Ember shard", color: "#5a240e", speck: "#ffb703", hardness: 0.4, tier: 0, coins: 0, drop: 29, placeable: false },
 ];
 
 export const BLOCK_COUNT = BLOCKS.length;

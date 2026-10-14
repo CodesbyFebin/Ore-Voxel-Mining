@@ -1,8 +1,10 @@
 import "@/polyfills";
 import { useEffect, useRef, useState } from "react";
 import { Landing } from "@/components/Landing";
+import { LiveBoard, freshEta, youDeployed } from "@/components/LiveBoard";
 import { Download, X } from "lucide-react";
 import { PICKAXES, block } from "@/game/blocks";
+import { FORGE } from "@/game/forge";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
 import type { ChainSnapshot, WalletBalances } from "@/ore/chain";
 import { ORE_PROGRAM_ID_STR } from "@/ore/codec";
@@ -83,6 +85,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [term, setTerm] = useState(false);
   const [receiptsOpen, setReceiptsOpen] = useState(false);
   const [chain, setChain] = useState<ChainSnapshot>(emptyChain);
+  const [now, setNow] = useState(() => Date.now());
   const [walletName, setWalletName] = useState<string | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [balances, setBalances] = useState<WalletBalances | null>(null);
@@ -94,6 +97,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [vaultCommit, setVaultCommit] = useState<string | null>(null);
   const [mobile, setMobile] = useState(false);
   const [packTab, setPackTab] = useState<"pack" | "craft" | "shop">("pack");
+  const [termTab, setTermTab] = useState<"board" | "strategy" | "analytics">("board");
   const lookRef = useRef<{ id: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -133,8 +137,8 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
     let lastRound: number | null = null;
     const tick = async () => {
       try {
-        const { readChain } = await import("@/ore/chain");
-        const snap = await readChain();
+        const { loadLiveBoard } = await import("@/ore/live");
+        const snap = await loadLiveBoard();
         if (stop) return;
         setChain(snap);
         if (snap.ok && snap.roundId !== null && lastRound !== null && snap.roundId !== lastRound) {
@@ -156,9 +160,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
     const id = window.setInterval(() => {
       if (!document.hidden) void tick();
     }, 12000);
+    const clockId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       stop = true;
       window.clearInterval(id);
+      window.clearInterval(clockId);
     };
   }, []);
 
@@ -188,11 +194,6 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
       if (e.code === "KeyF") {
         e.preventDefault();
         openTerminal();
-      }
-      if (e.code === "KeyP") {
-        if (e.repeat) return;
-        e.preventDefault();
-        gameRef.current?.usePortal();
       }
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -250,7 +251,6 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
     }
     const msg = gameRef.current?.grantVault() ?? "";
     if (msg) setToast(msg);
-    else setToast("Game reward only: crystals, one geode, 40 miner coins. Not ORE.");
   }
 
   async function connect() {
@@ -297,6 +297,8 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
 
   const snap = hud;
   const near = Boolean(snap?.nearTerminal);
+  const shownChain = { ...chain, etaSec: freshEta(chain, now) };
+  const yours = youDeployed(balances, shownChain.roundId);
 
   return (
     <main className="shell">
@@ -316,16 +318,46 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               <div className="text-[10px] tracking-[0.16em] text-muted uppercase">Miner coins</div>
               <div className="font-mono text-lg text-gold">{snap.coins}</div>
               <div className="text-[10px] text-muted">Game only. Not SOL.</div>
-              <button
-                type="button"
-                className="pointer-events-auto mt-2 text-[10px] font-bold tracking-widest text-cyan uppercase"
-                onClick={() => {
-                  setGuide(true);
-                  gameRef.current?.setPaused(true);
-                }}
-              >
-                Guide
-              </button>
+              <div className="mt-2 flex gap-0.5" aria-label={`Health ${snap.health} of ${snap.healthMax}`}>
+                {Array.from({ length: 10 }, (_, i) => {
+                  const filled = snap.health / 2 - i;
+                  const state = filled >= 1 ? "full" : filled > 0 ? "half" : "";
+                  return <i key={i} className={`heart ${state}`} />;
+                })}
+              </div>
+              <div className="mt-1 font-mono text-[10px] text-muted">
+                Health {snap.health}/{snap.healthMax}
+              </div>
+              <div className="pointer-events-auto mt-2 grid grid-cols-2 gap-1 text-[10px] font-bold tracking-wider uppercase">
+                {(["solo", "community", "pool", "bunker"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={snap.mode === mode ? "rounded border border-mint px-1 py-1 text-mint" : "rounded border border-line px-1 py-1 text-muted"}
+                    onClick={() => gameRef.current?.setMode(mode)}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              {snap.mode === "community" && <div className="mt-1 font-mono text-[10px] text-cyan">Crew chest {snap.crew} coins · this device</div>}
+              {snap.mode === "pool" && <div className="mt-1 font-mono text-[10px] text-gold">Pool {snap.pool}/100 · lantern, not ORE</div>}
+              {snap.mode === "bunker" && <div className="mt-1 font-mono text-[10px] text-muted">Bunker · darker, magma hits harder</div>}
+              <div className="pointer-events-auto mt-2 flex gap-3">
+                <button type="button" className="text-[10px] font-bold tracking-widest text-cyan uppercase" onClick={() => gameRef.current?.toggleView()}>
+                  View
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-bold tracking-widest text-cyan uppercase"
+                  onClick={() => {
+                    setGuide(true);
+                    gameRef.current?.setPaused(true);
+                  }}
+                >
+                  Guide
+                </button>
+              </div>
             </div>
             <div className="hud-card w-40">
               <div className="flex items-center justify-between">
@@ -371,13 +403,15 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                   X {Math.floor(snap.x)} · Y {Math.floor(snap.y)} · Z {Math.floor(snap.z)}
                 </div>
                 <div className="text-[10px] font-bold tracking-[0.14em] text-cyan uppercase">{snap.dimension}</div>
-                <div className="text-[10px] text-muted">Biome {biomeAt(snap.x, snap.y, snap.z)}</div>
+                <div className="text-[10px] text-muted">Biome {biomeAt(snap.dimension, snap.x, snap.y, snap.z)}</div>
+                <div className="font-mono text-[10px] text-muted">Depth {Math.max(0, 18 - Math.floor(snap.y))}</div>
               </div>
-              <div className="relative grid size-12 place-items-center rounded-full border border-cyan/50">
-                <div className="absolute size-10" style={{ transform: `rotate(${-snap.bearing}rad)` }}>
-                  <span className="absolute top-0 left-1/2 h-4 w-1 -translate-x-1/2 rounded-full bg-mint" />
+                <div className="relative grid size-12 place-items-center rounded-full border border-cyan/50">
+                  <span className="absolute top-0.5 text-[8px] text-mint">N</span>
+                  <div className="absolute size-10" style={{ transform: `rotate(${-snap.bearing}rad)` }}>
+                    <span className="absolute top-0 left-1/2 h-4 w-1 -translate-x-1/2 rounded-full bg-mint" />
+                  </div>
                 </div>
-              </div>
             </div>
             {snap.aim && (
               <div className="hud-card w-52">
@@ -385,9 +419,12 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                 <div className="mt-1 font-mono text-[11px] text-muted">Hardness {snap.aim.hardness}</div>
                 <div className="font-mono text-[11px] text-copper">{snap.aim.need}</div>
                 {snap.mine > 0 && (
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
-                    <div className="h-full bg-mint" style={{ width: `${snap.mine * 100}%` }} />
-                  </div>
+                  <>
+                    <div className="mt-1 font-mono text-[11px] text-mint">Mining {Math.round(snap.mine * 100)}%</div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-line">
+                      <div className="h-full bg-mint" style={{ width: `${snap.mine * 100}%` }} />
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -408,7 +445,18 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             ))}
           </div>
 
-          {snap.portal && !term && !pack && (
+          {snap.shaft && (
+            <div className="pointer-events-none absolute top-[46%] left-1/2 z-10 w-52 -translate-x-1/2 text-center">
+              <div className="rounded-full border border-cyan bg-bg/90 px-3 py-2 text-[11px] font-bold tracking-wide text-cyan">
+                Hold P to {snap.shaft.verb} · {snap.shaft.item}
+                {snap.shaft.ready ? "" : " · missing"}
+              </div>
+              <div className="mx-auto mt-1 h-1.5 w-40 overflow-hidden rounded bg-line">
+                <div className="h-full bg-cyan" style={{ width: `${snap.shaft.progress * 100}%` }} />
+              </div>
+            </div>
+          )}
+          {snap.portal && !term && !pack && !snap.shaft && (
             <button
               type="button"
               onClick={() => gameRef.current?.usePortal()}
@@ -440,10 +488,10 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             </button>
           )}
           <p className="pointer-events-none absolute bottom-20 left-3 z-10 hidden font-mono text-[10px] text-muted sm:block">
-            WASD move · hold click mine · right click place · E pack · F terminal · P portal
+            WASD move · Shift sprint · V view · Q medkit · hold click mine · right click place · E pack · F terminal · P portal
           </p>
           <div className="pointer-events-none absolute bottom-20 left-3 z-10 font-mono text-[10px] text-cyan sm:bottom-16">
-            Terminal {snap.terminalDist.toFixed(0)}m · motherlode {chain.motherlode ?? "unread"}
+            Terminal {snap.terminalDist.toFixed(0)}m · motherlode {shownChain.motherlode ?? "unread"}
           </div>
         </>
       )}
@@ -491,7 +539,13 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             onChange={(joyX, joyY) => gameRef.current?.setTouch({ joyX, joyY, lookDx: 0, lookDy: 0 })}
           />
           <div className="absolute right-4 bottom-6 flex flex-col items-end gap-3">
-            <button type="button" className="touch-btn" onClick={() => gameRef.current?.usePortal()}>
+            <button
+              type="button"
+              className="touch-btn"
+              onPointerDown={() => gameRef.current?.setChannel(true)}
+              onPointerUp={() => gameRef.current?.setChannel(false)}
+              onPointerLeave={() => gameRef.current?.setChannel(false)}
+            >
               PORTAL
             </button>
             <button type="button" className="touch-btn" onClick={openTerminal}>
@@ -508,6 +562,9 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               onPointerLeave={() => gameRef.current?.setJump(false)}
             >
               JUMP
+            </button>
+            <button type="button" className="touch-btn" onClick={() => gameRef.current?.useItem()}>
+              USE
             </button>
             <button type="button" className="touch-btn" onClick={() => gameRef.current?.place()}>
               PLACE
@@ -582,6 +639,17 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                   <b>Repair pick</b>
                   <span className="mt-1 block text-muted">8 timber. Restores durability. Not a token.</span>
                 </button>
+                {FORGE.map((recipe) => (
+                  <button
+                    key={recipe.id}
+                    type="button"
+                    className="w-full rounded-lg border border-line px-3 py-3 text-left"
+                    onClick={() => setToast(gameRef.current?.forge(recipe.id) || "Forged.")}
+                  >
+                    <b>{recipe.name}</b>
+                    <span className="mt-1 block text-muted">{recipe.detail}</span>
+                  </button>
+                ))}
               </div>
             )}
             {packTab === "shop" && (
@@ -624,77 +692,74 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
 
       {term && (
         <div className="absolute inset-0 z-30 flex items-end justify-center bg-bg/75 p-2 sm:items-center sm:p-4">
-          <div className="sheet flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden">
+          <div className="sheet flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden">
             <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
               <div>
-                <h2 className="text-lg font-extrabold text-mint">ORE v4 Mining</h2>
-                <p className="font-mono text-[10px] text-muted">Program {short(ORE_PROGRAM_ID_STR)} · mainnet · not a second token</p>
+                <h2 className="text-lg font-extrabold text-mint">ORE v4 terminal</h2>
+                <p className="font-mono text-[10px] text-muted">Live board · read-only · {short(ORE_PROGRAM_ID_STR)}</p>
               </div>
-              <div className="flex items-center gap-1 text-[11px] font-bold tracking-widest text-muted uppercase">Read only</div>
               <button type="button" aria-label="Close terminal" onClick={closeOverlays}>
                 <X />
               </button>
             </header>
-            <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_240px]">
-              <div>
-                <div className="grid grid-cols-5 gap-1">
-                  {Array.from({ length: 25 }, (_, i) => (
-                    <div key={i} className="tile-btn">
-                      <span className="block text-muted">#{i + 1}</span>
-                      {chain.deployedSol ? chain.deployedSol[i].toFixed(2) : "—"}
-                    </div>
-                  ))}
+            <div className="flex gap-2 border-b border-line px-4 py-2 text-[11px] font-bold tracking-widest uppercase">
+              {(["board", "strategy", "analytics"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={termTab === tab ? "text-mint" : "text-muted"}
+                  onClick={() => setTermTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {termTab === "board" && (
+                <LiveBoard
+                  chain={shownChain}
+                  you={yours}
+                  layout="grid"
+                  tier={snap?.dimensionId === "ember" ? 3 : snap?.dimensionId === "geode" ? 2 : 1}
+                />
+              )}
+              {termTab === "strategy" && (
+                <div className="space-y-2 text-sm">
+                  <p>The 25 tiles are the live round. This screen does not pick a tile or send SOL.</p>
+                  <p className="text-muted">There is no auto mode. A highlighted tile, if any, only means it currently holds the most SOL. That is not a winner and not a payout.</p>
+                  <p className="text-muted">Miner coins, magma, and the forge stay in the game. They cannot be deployed.</p>
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted">
-                  Read-only. These numbers are SOL already on this round. Tiles cannot be selected, and this build does not construct a deploy.
-                </p>
-              </div>
-              <aside className="space-y-2 font-mono text-[12px]">
-                <Stat k="Round" v={chain.roundId === null ? "Unavailable" : `#${chain.roundId}`} />
-                <Stat k="Time left" v={chain.ok && chain.etaSec !== null ? `${chain.etaSec}s · ~${chain.slotsLeft} slots` : "Unavailable"} />
-                <Stat k="Total deployed" v={chain.deployedSol ? `${chain.deployedSol.reduce((a, b) => a + b, 0).toFixed(4)} SOL` : "Unavailable"} />
-                <Stat k="Motherlode" v={chain.motherlode ? `${chain.motherlode} ORE` : "Unavailable"} />
-                <Stat k="Your SOL" v={balances?.sol === null || balances?.sol === undefined ? "—" : balances.sol.toFixed(4)} />
-                <Stat k="Your ORE" v={balances?.ore ?? "—"} />
-                <Stat k="Gate" v="Closed" />
-                {balances?.claimableSol !== null && balances?.claimableSol !== undefined && (
-                  <Stat k="Decoded claimable" v={`${balances.claimableSol.toFixed(4)} SOL${balances.claimableOre ? ` · ${balances.claimableOre} ORE` : ""}`} />
-                )}
-              </aside>
+              )}
+              {termTab === "analytics" && (
+                <div className="space-y-2 font-mono text-[12px]">
+                  <Stat k="Round" v={chain.roundId === null ? "Unavailable" : `#${chain.roundId}`} />
+                  <Stat k="Slot" v={chain.slot === null ? "Unavailable" : String(chain.slot)} />
+                  <Stat k="Round settled" v={chain.roundSettled === null ? "Unread" : chain.roundSettled ? "Yes" : "No"} />
+                  <Stat k="SOL per ORE" v={chain.solPerOre === null ? "Unread" : chain.solPerOre.toFixed(4)} />
+                  <Stat k="Your SOL" v={balances?.sol === null || balances?.sol === undefined ? "—" : balances.sol.toFixed(4)} />
+                  <Stat k="Your ORE" v={balances?.ore ?? "—"} />
+                  <Stat k="Gate" v="Closed" />
+                </div>
+              )}
             </div>
             <footer className="relative z-10 border-t border-line bg-surface px-4 py-3">
               <div className="mb-2 rounded-lg border border-danger/70 p-2 text-[11px] leading-relaxed text-danger">
                 <div className="font-bold text-fg">Financial operations disabled</div>
-                <p className="mt-1">
-                  Deploy, checkpoint, and claim stay off until a known-good fixture verifies the instruction bytes, accounts, and signer flags. Read-only board data below is live.
-                </p>
-                <ul className="mt-1 list-disc pl-4">
-                  {(gate?.checks ?? [{ name: "Reading mainnet accounts", ok: false }]).map((check) => (
-                    <li key={check.name} className={check.ok ? "text-mint" : "text-danger"}>
-                      {check.ok ? "Pass" : "Fail"} · {check.name}
-                      {check.reason ? ` — ${check.reason}` : ""}
-                    </li>
-                  ))}
-                </ul>
+                <p className="mt-1">Deploy stays off until a known-good fixture verifies the instruction. The grid above is the live round, not a bet slip.</p>
               </div>
               {!chain.ok && <p className="mb-2 text-xs text-danger">{chain.reason}</p>}
-              <p className="mb-2 text-[11px] text-muted">
-                {address
-                  ? `${walletName} ${short(address)}${balances?.minerFound ? "" : " · no miner account yet"}`
-                  : "Wallet not connected. Public round data is live. Your balance is not guessed."}{" "}
-                This screen does not estimate a payout or declare a winner.
+              <button type="button" className="w-full rounded-lg bg-copper py-3 text-sm font-extrabold text-bg opacity-40" disabled>
+                Deploy disabled
+              </button>
+              <button type="button" className="mt-2 w-full rounded-lg border border-line px-2 py-2 text-[11px]" onClick={() => void connect()}>
+                {address ? "Refresh wallet" : "Connect wallet"}
+              </button>
+              <p className="mt-2 text-[11px] text-muted">
+                {address ? `${walletName ?? "Wallet"} ${short(address)}` : "Wallet not connected. Public round data is live. Your balance is not guessed."}
+                {gate && !gate.ok ? ` · ${gate.checks.find((check) => !check.ok)?.name ?? "gate closed"}` : ""}
               </p>
-              <div className="rounded-xl border border-line px-3 py-3 text-sm">
-                <div className="font-bold text-danger">Deploy disabled in this build</div>
-                <div className="mt-1 text-[11px] text-muted">Awaiting a verified deploy fixture. No transaction is constructed.</div>
-              </div>
-              <div className="mt-2">
-                <button type="button" className="w-full rounded-lg border border-line px-2 py-2 text-[11px]" onClick={() => void connect()}>
-                  {address ? "Refresh wallet" : "Connect wallet"}
-                </button>
-              </div>
               <button type="button" className="mt-2 text-[11px] text-cyan underline" onClick={() => setReceiptsOpen(true)}>
-                Receipts ({receipts.length}) — Solscan links appear only after a confirmed signature
+                Receipts ({receipts.length})
               </button>
             </footer>
           </div>
@@ -713,7 +778,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             <ul className="space-y-3 text-sm">
               <li><b className="text-mint">Explore.</b> Crystal caves, a lava cut, and a sealed chamber are in this world. They are scenery and game blocks.</li>
               <li><b className="text-mint">Mine.</b> Drops are miner coins and items. Breaking a crystal does not mint ORE.</li>
-              <li><b className="text-mint">Vault.</b> The entropy vault stores a commit in this browser, then pays crystals, a geode, and miner coins. That is not the Entropy program.</li>
+              <li><b className="text-mint">Vault.</b> Scan the chamber, save a local commit, then reveal. A relic from the abyss upgrades the bundle. The commit is not an Entropy transaction, and the payout is not ORE.</li>
               <li><b className="text-mint">Terminal.</b> The board is read from mainnet. Deploy, checkpoint, and claim stay disabled until a known-good transaction pins their layouts.</li>
             </ul>
             <p className="mt-3 text-[11px] text-muted">The four-stage “commit, sample, reveal, finalized” diagram in the showcase is illustrative. This build does not pretend a local hash is a Solana randomness proof.</p>
@@ -734,18 +799,23 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
               </button>
             </header>
             <ul className="space-y-1 text-sm">
-              <li>Vault located</li>
-              <li>Chamber is part of the seeded world</li>
-              <li>{vaultCommit ? "Local commit recorded" : "Commit not recorded yet"}</li>
+              <li className={snap?.nearVault ? "text-mint" : ""}>1. Vault located</li>
+              <li className={snap?.quests.includes("scanned") ? "text-mint" : ""}>2. Chamber scanned</li>
+              <li className={vaultCommit ? "text-mint" : ""}>3. Local commit recorded</li>
+              <li>4. Reveal pays game items only</li>
             </ul>
-            {vaultCommit && <p className="mt-2 font-mono text-[10px] break-all text-muted">{vaultCommit}</p>}
-            <p className="mt-3 text-xs text-muted">Next pays in-game items only. It does not unlock ORE and it does not call the Entropy program.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <p className="mt-3 text-xs text-muted">
+              Bring a relic from the Amethyst Abyss for the larger bundle: crystals, geodes, and glow ore. Without one, the vault pays the small bundle. Neither bundle is ORE.
+            </p>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <button type="button" className="rounded-lg border border-cyan py-3 text-xs font-bold text-cyan" onClick={() => setToast(gameRef.current?.scanVault() || "Scanned.")}>
+                Scan
+              </button>
               <button type="button" className="rounded-lg border border-cyan py-3 text-xs font-bold text-cyan" onClick={() => void commitVault()}>
-                Record commit
+                Commit
               </button>
               <button type="button" className="rounded-lg bg-mint py-3 text-xs font-extrabold text-bg" onClick={revealVault}>
-                Reveal game reward
+                Reveal
               </button>
             </div>
           </div>
@@ -815,11 +885,12 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   );
 }
 
-function biomeAt(x: number, y: number, z: number): string {
+function biomeAt(dimension: string, x: number, y: number, z: number): string {
+  if (dimension.includes("Amethyst")) return y < 10 ? "Geode Pocket" : "Amethyst Hall";
+  if (dimension.includes("Ember")) return y < 8 ? "Magma Cut" : "Ember Shelf";
   if (x > 30 && z < 16 && y < 14) return "Crystal Vault";
-  if (x > 32) return "Lava Cut";
+  if (y < 8) return "Deep Vein";
   if (z > 30) return "Crystal Caves";
-  if (y < 9) return "Deep Vein";
   return "Surface Cut";
 }
 

@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { LiveBoard, freshEta } from "@/components/LiveBoard";
+import type { ChainSnapshot } from "@/ore/chain";
 
 const COLORS = ["#00e5d4", "#ff8833", "#a855f7", "#00d4ff", "#ffaa44", "#c084fc"];
 
@@ -19,6 +21,8 @@ const NOTES: Record<(typeof NAV)[number], string> = {
 export function Landing({ onLaunch }: { onLaunch: () => void }) {
   const [nav, setNav] = useState<(typeof NAV)[number]>("EXPLORE");
   const [docs, setDocs] = useState(false);
+  const [chain, setChain] = useState<ChainSnapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const crystals = useMemo(
     () =>
       Array.from({ length: 28 }, (_, i) => ({
@@ -33,6 +37,23 @@ export function Landing({ onLaunch }: { onLaunch: () => void }) {
       })),
     [],
   );
+
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      const { loadLiveBoard } = await import("@/ore/live");
+      const snap = await loadLiveBoard();
+      if (!stop) setChain(snap);
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 12000);
+    const clockId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      stop = true;
+      window.clearInterval(id);
+      window.clearInterval(clockId);
+    };
+  }, []);
 
   return (
     <div className="land">
@@ -108,13 +129,18 @@ export function Landing({ onLaunch }: { onLaunch: () => void }) {
             </svg>
             <span className="re">RE:</span>
           </h1>
-          <div className="land-sub">Voxel Mining World</div>
+          <div className="land-sub">Floating Voxel Kingdom</div>
           <div className="land-tag">
-            <span className="play">Play Freely.</span> Connect to Real <span className="ore">ORE v4 Mining.</span>
+            Bringing <span className="play">Solana ORE</span> mining into a <span className="ore">voxel world</span>
           </div>
           <p className="land-desc">
-            An original voxel-inspired 3D mining adventure with genuine on-chain ORE access. Miner coins never become ORE.
+            Explore the caves, craft with miner coins, and open a live ORE board. Broken blocks never become ORE.
           </p>
+          <div className="land-chips">
+            <span>Playable voxel world</span>
+            <span>Live ORE board · read-only</span>
+            <span>In-game mining terminal</span>
+          </div>
           <p className="land-note">{NOTES[nav]}</p>
           <div className="land-features">
             <Feature label={"EXPLORE\nVAST CAVES"} d="M8 32 L20 8 L32 32 Z M14 22 H26 M20 8 V32" />
@@ -129,6 +155,14 @@ export function Landing({ onLaunch }: { onLaunch: () => void }) {
             <button type="button" className="land-docs" onClick={() => setDocs(true)}>
               Read docs
             </button>
+          </div>
+          <div className="land-board">
+            <div className="land-board-title">Live ORE board · read-only</div>
+            {chain ? (
+              <LiveBoard chain={{ ...chain, etaSec: freshEta(chain, now) }} you="wallet not connected" />
+            ) : (
+              <p className="land-note">Reading the mainnet board…</p>
+            )}
           </div>
         </div>
       </div>
@@ -147,9 +181,7 @@ export function Landing({ onLaunch }: { onLaunch: () => void }) {
         WORLD
       </div>
       <div className="land-bar">
-        <span>
-          <i className="land-dot" /> SYSTEM ONLINE · PROTOCOL-SAFE
-        </span>
+        <span>Exploration · Crafting · Portals · ORE board</span>
         <span>© {new Date().getFullYear()} EDGEORE</span>
       </div>
 

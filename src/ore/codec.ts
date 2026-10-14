@@ -25,6 +25,8 @@ export type TreasuryView = {
 
 export type MinerView = {
   roundId: number;
+  /** SOL this miner deployed on the round in `roundId`, one entry per tile. */
+  deployedSol: number[];
   rewardsSol: number;
   rewardsOreRaw: bigint;
   refinedOreRaw: bigint;
@@ -75,6 +77,8 @@ export function decodeMiner(data: Uint8Array): MinerView | null {
   if (data.length < 712 || data[0] !== 103) return null;
   const v = view(data);
   const roundId = u64(v, 664);
+  const deployedSol: number[] = [];
+  for (let i = 0; i < 25; i++) deployedSol.push(Number(v.getBigUint64(64 + i * 8, true)) / 1e9);
   const rewardsLamports = v.getBigUint64(688, true);
   const refined = v.getBigUint64(696, true);
   const rewardsOre = v.getBigUint64(704, true);
@@ -83,6 +87,7 @@ export function decodeMiner(data: Uint8Array): MinerView | null {
   if (rewardsOre > 1_000_000n * LAMPORTS_PER_ORE) return null;
   return {
     roundId,
+    deployedSol,
     rewardsSol: Number(rewardsLamports) / 1e9,
     rewardsOreRaw: rewardsOre,
     refinedOreRaw: refined,

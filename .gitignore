@@ -10,3 +10,7 @@ dist
 attachments
 artifacts
 screenshots
+.grok
+AGENTS.md
+.project_id
+.node_modules.lock

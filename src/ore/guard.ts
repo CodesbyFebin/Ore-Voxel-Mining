@@ -1,4 +1,5 @@
 import { connection } from "@/ore/chain";
+import { deployGateReason } from "@/ore/provenance";
 import { BOARD_ADDRESS, ENTROPY_PROGRAM_ID, ENTROPY_VAR, ORE_PROGRAM_ID } from "@/ore/program";
 
 export type GateCheck = { name: string; ok: boolean; reason?: string };
@@ -55,7 +56,7 @@ export async function checkProtocolGate(): Promise<GateResult> {
     fail("Entropy var owner", error instanceof Error ? error.message : "RPC failed");
   }
 
-  fail("Deploy fixture validated", "Awaiting a verified deploy fixture. Spending stays off.");
+  fail("Deploy fixture provenance", deployGateReason(null));
   fail("Checkpoint fixture validated", "Checkpoint builder is disabled in this build.");
   fail("Claim fixture validated", "Claim builders are disabled in this build.");
 

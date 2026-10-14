@@ -3,6 +3,10 @@ import { PICKAXES, block } from "@/game/blocks";
 import { blockAtlas, meshChunk } from "@/game/mesher";
 import { traceVoxel } from "@/game/dda";
 import { DIMENSIONS, dimensionSeed, isDimensionId, type DimensionId } from "@/game/dimensions";
+import { tryForge } from "@/game/forge";
+import { type GameMode, GAME_MODES } from "@/game/modes";
+import { buildMiner } from "@/game/miner";
+import { SHAFT } from "@/game/shaft";
 import {
   CHUNKS_X,
   CHUNKS_Z,
@@ -51,8 +55,16 @@ export type HudSnapshot = {
   bearing: number;
   quests: string[];
   dimension: string;
+  dimensionId: DimensionId;
   hasTerminal: boolean;
+  health: number;
+  healthMax: number;
   portal: { toName: string; color: string } | null;
+  mode: GameMode;
+  modeLabel: string;
+  pool: number;
+  crew: number;
+  shaft: { verb: string; item: string; progress: number; ready: boolean } | null;
 };
 
 export type TouchInput = { joyX: number; joyY: number; lookDx: number; lookDy: number };
@@ -71,6 +83,7 @@ type SaveFile = {
   quests: string[];
   dimension?: DimensionId | "abyss";
   worlds?: Partial<Record<DimensionId | "abyss", EditMap>>;
+  mode?: GameMode;
 };
 
 export type GameHandle = {
@@ -79,6 +92,9 @@ export type GameHandle = {
   setKeys: (codes: string[]) => void;
   setTouch: (touch: TouchInput) => void;
   setMining: (held: boolean) => void;
+  setMode: (mode: GameMode) => void;
+  useItem: () => void;
+  toggleView: () => void;
   setJump: (held: boolean) => void;
   place: () => void;
   selectSlot: (index: number) => void;
@@ -87,7 +103,10 @@ export type GameHandle = {
   craftStone: () => string;
   repair: () => string;
   grantVault: () => string;
+  scanVault: () => string;
+  forge: (id: string) => string;
   usePortal: () => string;
+  setChannel: (held: boolean) => void;
   snapshot: () => HudSnapshot;
   dispose: () => void;
 };
@@ -137,7 +156,7 @@ export function mountGame(
   const savedDimension = saved?.dimension === "abyss" ? "geode" : saved?.dimension;
   let dimension: DimensionId = savedDimension && isDimensionId(savedDimension) ? savedDimension : "valley";
   let edits: EditMap = worlds[dimension];
-  let world: WorldData = generateWorld(dimensionSeed(seed, dimension), dimension);
+  let world: WorldData = generateWorld(dimensionSeed(seed, dimension), dimension, seed);
   applyEdits(world, edits);
 
   const inv = new Map<number, number>();
@@ -151,6 +170,27 @@ export function mountGame(
   let mined = saved?.mined ?? 0;
   let pickLevel = Math.min(PICKAXES.length - 1, saved?.pick ?? 0);
   let durability = saved?.dur ?? PICKAXES[pickLevel].durability;
+  let health = 20;
+  let mode: GameMode = saved?.mode === "community" || saved?.mode === "pool" || saved?.mode === "bunker" ? saved.mode : "solo";
+  let pool = 0;
+  let crew = 0;
+  try {
+    crew = Number(localStorage.getItem("edgeore-crew") || 0) || 0;
+  } catch {
+    crew = 0;
+  }
+  let crewChannel: BroadcastChannel | null = null;
+  try {
+    crewChannel = new BroadcastChannel("edgeore-crew");
+    crewChannel.onmessage = (event: MessageEvent<{ crew?: number }>) => {
+      if (typeof event.data?.crew === "number") crew = event.data.crew;
+    };
+  } catch {
+    crewChannel = null;
+  }
+  let burnAcc = 0;
+  let regenAcc = 0;
+  let toldBurn = false;
   const quests = new Set<string>(saved?.quests ?? []);
 
   const player = {
@@ -178,15 +218,19 @@ export function mountGame(
   let minePct = 0;
   let audio: AudioContext | null = null;
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x041018);
-  scene.fog = new THREE.Fog(0x0c2430, 28, 72);
-  scene.add(new THREE.HemisphereLight(0xe7fff8, 0x4a3424, 1.35));
-  const sun = new THREE.DirectionalLight(0xfff6e4, 1.15);
+  scene.fog = new THREE.FogExp2(0x0c2430, 0.032);
+  scene.add(new THREE.HemisphereLight(0xc8fff4, 0x2a1c14, 0.72));
+  scene.add(new THREE.AmbientLight(0x7ee7ff, 0.28));
+  const sun = new THREE.DirectionalLight(0xfff1d6, 1.35);
   sun.position.set(24, 40, 24);
   scene.add(sun);
   const shaft = new THREE.SpotLight(0x7ef0ff, 18, 40, 0.55, 0.4, 1);
@@ -195,12 +239,39 @@ export function mountGame(
   scene.add(shaft);
   scene.add(shaft.target);
 
-  const glowColors: Record<number, number> = { 7: 0xff8833, 8: 0xffb703, 9: 0xb8fff0, 10: 0x3dff9a, 11: 0x00e5d4, 12: 0x14f195, 16: 0xc084fc, 19: 0x67e8f9 };
+  const glowColors: Record<number, number> = { 7: 0xff8833, 8: 0xffb703, 9: 0xb8fff0, 10: 0x3dff9a, 11: 0x00e5d4, 12: 0x14f195, 16: 0xc084fc, 19: 0x67e8f9, 22: 0xff5500, 23: 0xffd56a, 25: 0xffe08a };
   const glowLights: THREE.PointLight[] = [];
   const lamp = new THREE.PointLight(0x14f195, 6, 14);
   scene.add(lamp);
   const vaultLight = new THREE.PointLight(0x00e5d4, 8, 16);
   scene.add(vaultLight);
+
+  const skyCanvas = document.createElement("canvas");
+  skyCanvas.width = 2;
+  skyCanvas.height = 64;
+  const skyCtx = skyCanvas.getContext("2d");
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  function paintSky(top: number, bottom: number) {
+    if (!skyCtx) return;
+    const grad = skyCtx.createLinearGradient(0, 0, 0, 64);
+    grad.addColorStop(0, `#${top.toString(16).padStart(6, "0")}`);
+    grad.addColorStop(1, `#${bottom.toString(16).padStart(6, "0")}`);
+    skyCtx.fillStyle = grad;
+    skyCtx.fillRect(0, 0, 2, 64);
+    skyTex.needsUpdate = true;
+  }
+  paintSky(0x1a4660, 0x041018);
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(80, 16, 12),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false, fog: false }),
+  );
+  scene.add(sky);
+  const waterMat = new THREE.MeshBasicMaterial({ color: 0x167a96, transparent: true, opacity: 0.42, depthWrite: false });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(WX, 14), waterMat);
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(WX / 2, 8.05, 20);
+  scene.add(water);
 
   const camera = new THREE.PerspectiveCamera(72, 1, 0.08, 120);
   scene.add(camera);
@@ -209,7 +280,15 @@ export function mountGame(
   atlas.magFilter = THREE.NearestFilter;
   atlas.minFilter = THREE.NearestFilter;
   atlas.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshLambertMaterial({ map: atlas });
+  const material = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <uv_pars_vertex>", "#include <uv_pars_vertex>\nattribute vec4 tileBox;")
+      .replace(
+        "#include <uv_vertex>",
+        "#include <uv_vertex>\n#ifdef USE_MAP\nvMapUv = tileBox.xy + fract(vUv) * tileBox.zw;\n#endif",
+      );
+  };
 
   const chunkMeshes = new Map<string, THREE.Mesh>();
 
@@ -229,6 +308,8 @@ export function mountGame(
     geo.setAttribute("position", new THREE.BufferAttribute(data.positions, 3));
     geo.setAttribute("normal", new THREE.BufferAttribute(data.normals, 3));
     geo.setAttribute("uv", new THREE.BufferAttribute(data.uvs, 2));
+    geo.setAttribute("color", new THREE.BufferAttribute(data.colors, 3));
+    geo.setAttribute("tileBox", new THREE.BufferAttribute(data.tiles, 4));
     const mesh = new THREE.Mesh(geo, material);
     geo.computeBoundingBox();
     geo.computeBoundingSphere();
@@ -333,7 +414,13 @@ export function mountGame(
     buildPortalMeshes();
     const look = DIMENSIONS[world.dimension];
     (scene.background as THREE.Color).setHex(look.sky);
-    (scene.fog as THREE.Fog).color.setHex(look.fog);
+    (scene.fog as THREE.FogExp2).color.setHex(look.fog);
+    (scene.fog as THREE.FogExp2).density = mode === "bunker" ? 0.055 : 0.032;
+    paintSky(look.fog, look.sky);
+    water.visible = world.dimension === "valley";
+    if (world.dimension === "geode") waterMat.color.setHex(0x6a3cb5);
+    if (world.dimension === "ember") waterMat.color.setHex(0xc2410c);
+    if (world.dimension === "valley") waterMat.color.setHex(0x167a96);
     lamp.visible = world.services;
     vaultLight.visible = world.services;
     beam.visible = world.services;
@@ -368,6 +455,64 @@ export function mountGame(
     return best;
   }
 
+  function nearShaft(): boolean {
+    return Math.hypot(player.x - world.shaft.x, player.z - world.shaft.z) < 2.3 && Math.abs(player.y - world.shaft.y) < 3;
+  }
+
+  function descendShaft(to: DimensionId) {
+    const x = world.shaft.x;
+    const z = world.shaft.z;
+    worlds[dimension] = edits;
+    dimension = to;
+    edits = worlds[dimension];
+    world = generateWorld(dimensionSeed(seed, dimension), dimension, seed);
+    applyEdits(world, edits);
+    rebuildAll();
+    dressWorld();
+    player.x = x;
+    player.z = z;
+    player.y = world.shaft.y;
+    player.vx = 0;
+    player.vy = 0;
+    player.vz = 0;
+    mine = null;
+    crack.visible = false;
+    save();
+    opts.onHud(snapshot());
+  }
+
+  function tickShaft(dt: number) {
+    const link = SHAFT[dimension];
+    const holding = (down("KeyP") || channelHeld) && started && !paused;
+    if (!nearShaft() || !holding) {
+      if (channel > 0) camera.fov = 72;
+      channel = 0;
+      return;
+    }
+    if ((inv.get(link.item) ?? 0) < 1) {
+      channel = 0;
+      camera.fov = 72;
+      return;
+    }
+    channel = Math.min(1, channel + dt / 3);
+    camera.fov = 72 + channel * 12;
+    camera.updateProjectionMatrix();
+    if (channel < 1) return;
+    if (!take(link.item, 1)) {
+      channel = 0;
+      return;
+    }
+    channel = 0;
+    camera.fov = 72;
+    camera.updateProjectionMatrix();
+    descendShaft(link.to);
+    toast(
+      link.verb === "ascend"
+        ? "Climbed the same shaft. The ember shard was a game item. No wallet was asked."
+        : "Descended the same shaft. The key was a game item. No wallet was asked.",
+    );
+  }
+
   function usePortal(): string {
     if (!started || paused) return "";
     const now = performance.now();
@@ -382,7 +527,7 @@ export function mountGame(
     worlds[dimension] = edits;
     dimension = gate.to;
     edits = worlds[dimension];
-    world = generateWorld(dimensionSeed(seed, dimension), dimension);
+    world = generateWorld(dimensionSeed(seed, dimension), dimension, seed);
     applyEdits(world, edits);
     rebuildAll();
     dressWorld();
@@ -428,6 +573,13 @@ export function mountGame(
   view.position.set(0.34, -0.32, -0.55);
   camera.add(view);
   let swing = 0;
+  let third = false;
+  let channel = 0;
+  let channelHeld = false;
+  let portalLatch = false;
+  const miner = buildMiner();
+  miner.group.visible = false;
+  scene.add(miner.group);
 
   const particles: { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
   const pebbleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
@@ -472,6 +624,7 @@ export function mountGame(
       worlds,
       dimension,
       quests: [...quests],
+      mode,
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(file));
@@ -581,6 +734,23 @@ export function mountGame(
     mined++;
     xp += def.coins > 10 ? 8 : 1;
     if (def.drop) give(def.drop, 1);
+    if (mode === "community" && def.coins > 0) {
+      crew += def.coins;
+      try {
+        localStorage.setItem("edgeore-crew", String(crew));
+      } catch {
+        /* ignore */
+      }
+      crewChannel?.postMessage({ crew });
+    }
+    if (mode === "pool" && def.coins >= 6) {
+      pool += 10;
+      if (pool >= 100) {
+        pool -= 100;
+        give(25, 1);
+        toast("Pool practice paid a lantern. Game item only. Not ORE.");
+      }
+    }
     durability = Math.max(0, durability - 1);
     if (durability === 0) toast("Pickaxe is worn. Repair it in the pack.");
     quests.add("mine");
@@ -611,6 +781,12 @@ export function mountGame(
     }
     if (!take(id, 1)) return;
     writeBlock(x, y, z, id);
+    if (id === 25 && glowLights.length < 24) {
+      const light = new THREE.PointLight(0xffe08a, 1.4, 8);
+      light.position.set(x + 0.5, y + 0.8, z + 0.5);
+      scene.add(light);
+      glowLights.push(light);
+    }
     tone(220, 0.05, "triangle", 0.03);
     save();
   }
@@ -649,7 +825,7 @@ export function mountGame(
       move.addScaledVector(forward, touch.joyY);
     }
     if (move.lengthSq() > 1) move.normalize();
-    const speed = 5.2;
+    const speed = down("ShiftLeft") || down("ShiftRight") ? 8.4 : 5.2;
     player.vx = move.x * speed;
     player.vz = move.z * speed;
     if (down("Space") && player.onGround) {
@@ -671,9 +847,11 @@ export function mountGame(
     let ny = player.y + player.vy * dt;
     if (collides(nx, ny, nz)) {
       if (player.vy < 0) {
+        const impact = player.vy;
         player.onGround = true;
         ny = Math.floor(ny) + 1;
         if (collides(nx, ny, nz)) ny = player.y;
+        if (impact < -12) hurt(Math.min(10, Math.floor(-impact - 11)));
       } else {
         ny = player.y;
       }
@@ -687,6 +865,45 @@ export function mountGame(
     if (player.y < 0.2 && player.vy <= 0) {
       player.y = world.spawn.y;
       player.vy = 0;
+    }
+    tickBody(dt);
+  }
+
+  function hurt(amount: number) {
+    health = Math.max(0, health - amount);
+    if (health > 0) return;
+    health = 20;
+    burnAcc = 0;
+    player.x = world.spawn.x;
+    player.y = world.spawn.y;
+    player.z = world.spawn.z;
+    player.vx = 0;
+    player.vy = 0;
+    player.vz = 0;
+    toast("You blacked out at the spawn. Miner coins stayed in the pack.");
+  }
+
+  function tickBody(dt: number) {
+    if (!started || paused) return;
+    const under = getId(Math.floor(player.x), Math.floor(player.y - 0.08), Math.floor(player.z));
+    if (under === 22) {
+      regenAcc = 0;
+      burnAcc += dt;
+      if (burnAcc >= 0.45) {
+        burnAcc = 0;
+        if (!toldBurn) {
+          toldBurn = true;
+          toast("Magma burns game health. Your wallet is not involved.");
+        }
+        hurt(mode === "bunker" ? 4 : 2);
+      }
+      return;
+    }
+    burnAcc = 0;
+    regenAcc += dt;
+    if (regenAcc >= (mode === "bunker" ? 6.4 : 3.2) && health < 20) {
+      regenAcc = 0;
+      health += 1;
     }
   }
 
@@ -803,7 +1020,22 @@ export function mountGame(
       bearing,
       quests: [...quests],
       dimension: DIMENSIONS[dimension].label,
+      dimensionId: dimension,
       hasTerminal: world.services,
+      health,
+      healthMax: 20,
+      mode,
+      modeLabel: GAME_MODES[mode].label,
+      pool,
+      crew,
+      shaft: nearShaft()
+        ? {
+            verb: SHAFT[dimension].verb,
+            item: SHAFT[dimension].itemName,
+            progress: channel,
+            ready: (inv.get(SHAFT[dimension].item) ?? 0) > 0,
+          }
+        : null,
       portal: (() => {
         const gate = nearestPortal();
         if (!gate) return null;
@@ -831,13 +1063,27 @@ export function mountGame(
       steps++;
     }
     updateMine(dt);
+    tickShaft(dt);
     camera.position.set(player.x, player.y + EYE, player.z);
     camera.rotation.order = "YXZ";
-    camera.rotation.y = player.yaw;
-    camera.rotation.x = player.pitch;
+    if (third) {
+      camera.position.set(player.x + Math.sin(player.yaw) * 4.4, player.y + 2.5, player.z + Math.cos(player.yaw) * 4.4);
+      camera.lookAt(player.x - Math.sin(player.yaw) * 6, player.y + 1.2 - player.pitch, player.z - Math.cos(player.yaw) * 6);
+      miner.group.visible = true;
+      miner.group.position.set(player.x, player.y, player.z);
+      miner.group.rotation.y = player.yaw;
+      miner.arm.rotation.x = -0.7 - Math.sin(swing * Math.PI) * 1.1;
+      view.visible = false;
+    } else {
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = player.pitch;
+      miner.group.visible = false;
+      view.visible = true;
+    }
     swing = Math.max(0, swing - dt * 4);
     view.rotation.x = Math.sin(swing * Math.PI) * 0.9;
     const t = now / 1000;
+    water.position.y = 8.05 + Math.sin(t * 1.4) * 0.05;
     drone.position.y = world.terminal.y + 1.5 + Math.sin(t * 2) * 0.15;
     ring.rotation.z = t;
     beam.rotation.y = t * 0.4;
@@ -867,17 +1113,44 @@ export function mountGame(
     camera.updateProjectionMatrix();
   }
 
+  function applyItem() {
+    const id = hotbar[selected] ?? 0;
+    if (id !== 26) {
+      toast("Select a medkit, then press Q. It only restores game health.");
+      return;
+    }
+    if (!take(26, 1)) return;
+    health = Math.min(20, health + 8);
+    toast("Medkit restored game health. It did not touch your wallet.");
+    save();
+    opts.onHud(snapshot());
+  }
+
   function onKeyDown(e: KeyboardEvent) {
-    if (e.code === "Space" || e.code === "KeyE" || e.code === "KeyF" || e.code === "KeyR") e.preventDefault();
+    if (e.code === "Space" || e.code === "KeyE" || e.code === "KeyF" || e.code === "KeyR" || e.code === "KeyQ" || e.code === "KeyP") e.preventDefault();
     keys.add(e.code);
     if (!started || paused) return;
+    if (e.code === "KeyQ") applyItem();
+    if (e.code === "KeyV") {
+      third = !third;
+      toast(third ? "Third person. The miner is a game model, not a wallet." : "First person.");
+    }
     if (e.code.startsWith("Digit")) {
       const n = Number(e.code.slice(5));
       if (n >= 1 && n <= 9) selected = n - 1;
     }
   }
   function onKeyUp(e: KeyboardEvent) {
+    const wasPortal = e.code === "KeyP" && keys.has("KeyP");
     keys.delete(e.code);
+    if (wasPortal && channel < 0.2 && !nearShaft() && !portalLatch) {
+      portalLatch = true;
+      usePortal();
+      window.setTimeout(() => {
+        portalLatch = false;
+      }, 400);
+    }
+    if (e.code === "KeyP") channel = 0;
   }
   function onMouseDown(e: MouseEvent) {
     if (e.button === 0) miningHeld = true;
@@ -908,6 +1181,9 @@ export function mountGame(
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("resize", resize);
   window.addEventListener("blur", onBlur);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") save();
+  });
   canvas.addEventListener("mousedown", onMouseDown);
   window.addEventListener("mouseup", onMouseUp);
   window.addEventListener("mousemove", onMouseMove);
@@ -949,6 +1225,31 @@ export function mountGame(
     },
     setMining(held) {
       miningHeld = held;
+    },
+    setMode(next) {
+      mode = next;
+      if (next === "bunker" && !quests.has("bunker-kit")) {
+        give(24, 8);
+        quests.add("bunker-kit");
+        toast("Bunker kit: 8 plates. Magma hits harder. Still not ORE.");
+      } else {
+        toast(GAME_MODES[next].detail);
+      }
+      dressWorld();
+      save();
+      opts.onHud(snapshot());
+    },
+    useItem() {
+      applyItem();
+    },
+    setChannel(held: boolean) {
+      channelHeld = held;
+      if (!held && channel < 0.2 && !nearShaft()) usePortal();
+      if (!held) channel = 0;
+    },
+    toggleView() {
+      third = !third;
+      toast(third ? "Third person. The miner is a game model, not a wallet." : "First person.");
     },
     setJump(held) {
       jumpHeld = held;
@@ -1006,13 +1307,44 @@ export function mountGame(
       return "";
     },
     grantVault() {
+      if (!quests.has("scanned")) return "Scan the chamber first. That step stays in the game.";
       if (quests.has("vault")) return "The vault already paid its game reward.";
-      give(11, 4);
-      give(16, 1);
-      coins += 40;
+      const relic = take(23, 1);
+      give(11, relic ? 8 : 4);
+      give(16, relic ? 2 : 1);
+      if (relic) give(12, 1);
+      coins += relic ? 80 : 40;
       quests.add("vault");
       save();
-      toast("Vault paid game items only. No ORE was minted.");
+      toast(relic ? "Relic bundle paid in game items. No ORE was minted." : "Small bundle paid. An abyss relic pays more. Still not ORE.");
+      opts.onHud(snapshot());
+      return "";
+    },
+    scanVault() {
+      quests.add("scanned");
+      save();
+      toast("Chamber scanned. This note is local. It is not an Entropy proof.");
+      opts.onHud(snapshot());
+      return "";
+    },
+    forge(id) {
+      const counts: Record<number, number> = {};
+      for (const [blockId, amount] of inv) counts[blockId] = amount;
+      const result = tryForge(counts, id);
+      if (!result.ok) return result.reason;
+      inv.clear();
+      for (const [key, amount] of Object.entries(result.counts)) {
+        if (amount > 0) inv.set(Number(key), amount);
+      }
+      for (let i = 0; i < hotbar.length; i++) if ((inv.get(hotbar[i] ?? 0) ?? 0) <= 0) hotbar[i] = 0;
+      for (const [blockId, amount] of inv) {
+        if (amount > 0 && !hotbar.includes(blockId)) {
+          const empty = hotbar.indexOf(0);
+          if (empty >= 0) hotbar[empty] = blockId;
+        }
+      }
+      save();
+      toast("Forged a game item. No ORE was minted.");
       opts.onHud(snapshot());
       return "";
     },
