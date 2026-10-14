@@ -8,6 +8,7 @@ import { PICKAXES, block } from "@/game/blocks";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
 import type { ChainSnapshot, WalletBalances } from "@/ore/chain";
 import { ORE_PROGRAM_ID_STR } from "@/ore/codec";
+import { terminalCapabilities, type TerminalDimension } from "@/ore/terminal-tiers";
 import type { GateResult } from "@/ore/guard";
 import type { PreparedTx, WalletProvider } from "@/ore/tx";
 
@@ -316,6 +317,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
 
   const snap = hud;
   const near = Boolean(snap?.nearTerminal);
+  const terminalView = terminalCapabilities((snap?.dimension === "geode" || snap?.dimension === "ember" ? snap.dimension : "valley") as TerminalDimension);
 
   return (
     <main className="shell">
@@ -667,7 +669,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
           <div className="sheet flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mint/35 shadow-2xl sm:max-h-[92dvh]" role="dialog" aria-modal="true" aria-label="ORE grid terminal">
             <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
               <div>
-                <h2 className="text-base font-extrabold text-mint sm:text-lg">ORE GRID · PLAYTEST</h2>
+                <h2 className="text-base font-extrabold text-mint sm:text-lg">ORE GRID · TIER {terminalView.tier} · PLAYTEST</h2>
                 <p className="font-mono text-[10px] text-muted">Program {short(ORE_PROGRAM_ID_STR)} · mainnet · not a second token</p>
               </div>
               <button type="button" className="rounded-lg border border-cyan/50 bg-cyan/10 px-2 py-2 text-[10px] font-bold text-cyan sm:text-xs" onClick={()=>setMarketOpen(v=>!v)}>{marketOpen?"ORE GRID":"DEMO TRADE / STAKE"}</button>
@@ -694,9 +696,11 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
                 <Stat k="Round" v={chain.roundId === null ? "Unavailable" : `#${chain.roundId}`} />
                 <Stat k="Time left" v={chain.ok && chain.etaSec !== null ? `${chain.etaSec}s · ~${chain.slotsLeft} slots` : "Unavailable"} />
                 <Stat k="Total deployed" v={chain.deployedSol ? `${chain.deployedSol.reduce((a, b) => a + b, 0).toFixed(4)} SOL` : "Unavailable"} />
-                <Stat k="Motherlode" v={chain.motherlode ? `${chain.motherlode} ORE` : "Unavailable"} />
+                {terminalView.motherlode ? <Stat k="Motherlode" v={chain.motherlode ? `${chain.motherlode} ORE` : "Unavailable"} /> : <Stat k="Motherlode" v="Unlock display in Ember Depths" />}
                 <Stat k="Your SOL" v={balances?.sol === null || balances?.sol === undefined ? "—" : balances.sol.toFixed(4)} />
                 <Stat k="Your ORE" v={balances?.ore ?? "—"} />
+                <Stat k="Analytics" v={terminalView.historicalAnalytics ? "Verified history" : terminalView.tier >= 2 ? "History unavailable · not fabricated" : "Tier 2 feature"} />
+                <Stat k="Simulation" v="Unavailable · transactions disabled" />
                 <Stat k="Gate" v="Closed" />
                 {balances?.claimableSol !== null && balances?.claimableSol !== undefined && (
                   <Stat k="Decoded claimable" v={`${balances.claimableSol.toFixed(4)} SOL${balances.claimableOre ? ` · ${balances.claimableOre} ORE` : ""}`} />
