@@ -185,10 +185,10 @@ export function mountGame(
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x041018);
-  scene.fog = new THREE.Fog(0x0c2430, 28, 72);
-  scene.add(new THREE.HemisphereLight(0xe7fff8, 0x4a3424, 1.35));
-  const sun = new THREE.DirectionalLight(0xfff6e4, 1.15);
+  scene.background = new THREE.Color(0x04121a);
+  scene.fog = new THREE.Fog(0x04121a, 20, 55);
+  scene.add(new THREE.HemisphereLight(0x88a0b0, 0x38403c, 1.0));
+  const sun = new THREE.DirectionalLight(0xc0e8ff, 0.85);
   sun.position.set(24, 40, 24);
   scene.add(sun);
   const shaft = new THREE.SpotLight(0x7ef0ff, 18, 40, 0.55, 0.4, 1);
