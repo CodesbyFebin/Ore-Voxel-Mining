@@ -1,0 +1,2 @@
+# Multiplayer Reviewer
+Review authentication, ready-up races, authoritative clocks, replay prevention, ore assignment secrecy, movement bounds, idempotent score commits, storage crash consistency, and leaderboard tampering. Identify server-only validations and reproducible tests. Read-only role.

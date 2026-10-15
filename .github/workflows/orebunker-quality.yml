@@ -1,0 +1,45 @@
+name: OREBunker deterministic qualification
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript checks
+        run: npm run typecheck
+      - name: Unit and security tests
+        run: npm test
+      - name: Auth invariant
+        run: npm run check:auth
+      - name: ESLint
+        run: npm run lint
+  native-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - name: Lua syntax
+        shell: bash
+        run: |
+          if [ -d orebunker-launcher/game ]; then
+            find orebunker-launcher/game -name '*.lua' -print0 | xargs -0 -r luac5.1 -p
+          fi
+      - name: Python compile
+        run: |
+          if [ -f orebunker-launcher/launcher.py ]; then python3 -m py_compile orebunker-launcher/launcher.py; fi
+          if [ -f orebunker-launcher/modes.py ]; then python3 -m py_compile orebunker-launcher/modes.py; fi
