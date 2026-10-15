@@ -10,6 +10,7 @@ import { tryForge } from "@/game/forge";
 import { type GameMode, GAME_MODES } from "@/game/modes";
 import { buildMiner } from "@/game/miner";
 import { SHAFT } from "@/game/shaft";
+import { canContinueShaftChannel, SHAFT_COOLDOWN_MS } from "@/game/shaft-channel";
 import {
   CHUNKS_X,
   CHUNKS_Z,
@@ -534,14 +535,16 @@ export function mountGame(
   function tickShaft(dt: number) {
     const link = SHAFT[dimension];
     const holding = (down("KeyP") || channelHeld) && started && !paused;
-    if (!nearShaft() || !holding) {
-      if (channel > 0) camera.fov = 72;
-      channel = 0;
-      return;
+    const now = performance.now();
+    const hasItem = (inv.get(link.item) ?? 0) >= 1;
+    const inRange = nearShaft();
+    if (!channelOrigin && inRange && holding && hasItem && now >= shaftReadyAt) {
+      channelOrigin = { x: player.x, z: player.z };
     }
-    if ((inv.get(link.item) ?? 0) < 1) {
+    if (!canContinueShaftChannel(channelOrigin, player, inRange, holding, hasItem, now, shaftReadyAt)) {
+      if (channel > 0) { camera.fov = 72; camera.updateProjectionMatrix(); }
       channel = 0;
-      camera.fov = 72;
+      channelOrigin = null;
       return;
     }
     channel = Math.min(1, channel + dt / 3);
@@ -550,9 +553,12 @@ export function mountGame(
     if (channel < 1) return;
     if (!take(link.item, 1)) {
       channel = 0;
+      channelOrigin = null;
       return;
     }
     channel = 0;
+    channelOrigin = null;
+    shaftReadyAt = now + SHAFT_COOLDOWN_MS;
     camera.fov = 72;
     camera.updateProjectionMatrix();
     descendShaft(link.to);
@@ -625,6 +631,8 @@ export function mountGame(
   let swing = 0;
   let third = false;
   let channel = 0;
+  let channelOrigin: { x: number; z: number } | null = null;
+  let shaftReadyAt = 0;
   let channelHeld = false;
   const miner = buildMiner();
   miner.group.visible = false;
