@@ -27,7 +27,7 @@ test("preflight rejects illegal palette and boundaries",()=>{
 });
 test("valid blueprint persists only after write",async()=>{
  const h=context();const r=await placeIntoEdgeOre(bp,[10,8,10],h.ctx);
- assert.equal(r.blocks,2);assert.equal(h.data.size,2);assert.equal(h.calls.saves,1);assert.equal(h.calls.backups,1);
+ assert.equal(r.blocks,2);assert.equal(r.backupOk,true);assert.equal(h.data.size,2);assert.equal(h.calls.saves,1);assert.equal(h.calls.backups,1);
 });
 test("occupied and protected zones reject without writing",async()=>{
  const h=context();h.data.set("10,8,10",13);
@@ -38,6 +38,9 @@ test("occupied and protected zones reject without writing",async()=>{
 test("localStorage and backup failures are observable",async()=>{
  const h=context();h.ctx.save=()=>false;
  await assert.rejects(placeIntoEdgeOre(bp,[10,8,10],h.ctx),/Authoritative/);
+ assert.equal(h.data.size,2);assert.equal(h.ctx.readBlock(10,8,10),0);
  const k=context();k.ctx.flushBackup=async()=>{throw Error("quota")};
- await assert.rejects(placeIntoEdgeOre(bp,[10,8,10],k.ctx),/quota/);
+ const result=await placeIntoEdgeOre(bp,[10,8,10],k.ctx);
+ assert.equal(result.backupOk,false);assert.match(result.warning,/quota/);
+ assert.equal(k.data.size,2);
 });
