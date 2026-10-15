@@ -1,0 +1,22 @@
+name: OREBunker focused launcher checks
+on:
+  workflow_dispatch:
+  push:
+    paths: ['orebunker-launcher/**','.github/workflows/orebunker-focused-launcher.yml']
+  pull_request:
+    paths: ['orebunker-launcher/**','.github/workflows/orebunker-focused-launcher.yml']
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua syntax checker
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - name: Compile Python modules
+        run: python3 -m py_compile orebunker-launcher/launcher.py orebunker-launcher/modes.py
+      - name: Check all Lua files
+        run: find orebunker-launcher/game -name '*.lua' -print0 | xargs -0 -r luac5.1 -p
+      - name: Assert required native content
+        run: |
+          test -f orebunker-launcher/game/game.conf
+          test -f orebunker-launcher/game/mods/orebunker_mining/init.lua
