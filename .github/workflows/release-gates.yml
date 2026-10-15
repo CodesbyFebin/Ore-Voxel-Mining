@@ -24,6 +24,8 @@ jobs:
         run: node --experimental-strip-types --test src/game/craftgpt-ui.test.ts src/game/compute-structures.test.ts src/game/shaft-channel.test.ts src/game/shaft.test.ts src/game/mesher.test.ts src/ore/codec.test.ts
       - name: Blueprint importer safety tests
         run: node --test src/game/content/blueprint-wiring.test.mjs
+      - name: Atmosphere profile tests
+        run: node --experimental-strip-types --test src/game/atmosphere.test.ts
       - name: Vite and app build
         run: npm run build
       - name: Engine and ORE regression suite
