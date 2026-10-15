@@ -4,7 +4,8 @@ import { Landing } from "@/components/Landing";
 import { LiveBoard, freshEta, youDeployed } from "@/components/LiveBoard";
 import { Download, X } from "lucide-react";
 import { SandboxMarket } from "@/components/SandboxMarket";
-import { COMPUTE_STRUCTURES, type ComputeStructure } from "@/game/compute-structures";
+import { COMPUTE_STRUCTURES, blueprint, type ComputeStructure } from "@/game/compute-structures";
+import { parseCraftBuildCommand, craftBlueprintSummary } from "@/game/craftgpt-ui";
 import { PICKAXES, block } from "@/game/blocks";
 import { FORGE } from "@/game/forge";
 import type { GameHandle, HudSnapshot } from "@/game/engine";
@@ -98,6 +99,9 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [guide, setGuide] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [craftKind, setCraftKind] = useState<ComputeStructure>("embedding");
+  const [craftCommand, setCraftCommand] = useState("");
+  const [craftMessage, setCraftMessage] = useState("Choose a structure or enter a supported build command.");
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultCommit, setVaultCommit] = useState<string | null>(null);
   const [mobile, setMobile] = useState(false);
@@ -724,23 +728,45 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
 
       {builderOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-bg/85 p-3 backdrop-blur-sm">
-          <section className="sheet max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-cyan/40 p-5" role="dialog" aria-modal="true" aria-label="Compute structure world builder">
-            <div className="flex items-center justify-between"><h2 className="text-xl font-extrabold text-mint">COMPUTE STRUCTURES</h2><button type="button" className="rounded border border-line px-3 py-2" onClick={closeOverlays}>Close</button></div>
-            <p className="mt-2 text-sm text-muted">CraftGPT-inspired visual voxel exhibits. They are decorative educational structures, not a running language model. Builds are saved locally and never perform blockchain transactions.</p>
-            <div className="mt-4 grid gap-2">
+          <section className="sheet max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-xl border border-cyan/40 p-5" role="dialog" aria-modal="true" aria-label="CraftGPT voxel blueprint builder">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs uppercase tracking-widest text-cyan">EdgeORE · Local Builder</p><h2 className="text-xl font-extrabold text-mint">CRAFTGPT STUDIO</h2></div>
+              <button type="button" className="rounded border border-line px-3 py-2" onClick={closeOverlays}>Close</button>
+            </div>
+            <p className="mt-2 text-sm text-muted">Deterministic CraftGPT-inspired voxel exhibits. This is a local schematic planner, not neural inference. No wallet or blockchain transaction is used.</p>
+            <label htmlFor="craft-command" className="mt-4 block text-xs font-bold uppercase tracking-wider text-cyan">Build command</label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input id="craft-command" value={craftCommand} onChange={e=>setCraftCommand(e.target.value)} placeholder="build attention hall" maxLength={100} className="min-w-0 flex-1 rounded-lg border border-cyan/30 bg-surface px-3 py-3 font-mono text-sm text-white" />
+              <button type="button" className="rounded-lg border border-cyan px-4 py-2 text-sm font-bold text-cyan" onClick={()=>{
+                const parsed = parseCraftBuildCommand(craftCommand);
+                if (!parsed.ok) { setCraftMessage(parsed.reason); return; }
+                setCraftKind(parsed.kind);
+                setCraftMessage(`Selected ${COMPUTE_STRUCTURES[parsed.kind].label}. Review the blueprint before building.`);
+              }}>Plan</button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(Object.entries(COMPUTE_STRUCTURES) as Array<[ComputeStructure, (typeof COMPUTE_STRUCTURES)[ComputeStructure]]>).map(([kind, def]) => (
-                <button type="button" key={kind} className="rounded-lg border border-cyan/25 bg-surface p-3 text-left hover:border-mint" onClick={()=>{
-                  const msg = gameRef.current?.buildComputeStructure(kind) ?? "Game not initialized.";
-                  setToast(msg);setBuilderOpen(false);gameRef.current?.setPaused(false);
-                }}>
-                  <strong className="text-cyan">{def.label}</strong><span className="ml-2 text-xs text-muted">{def.description}</span>
+                <button type="button" key={kind} aria-pressed={craftKind===kind} className={`rounded-lg border p-3 text-left ${craftKind===kind?"border-mint bg-mint/10":"border-line bg-surface hover:border-cyan"}`} onClick={()=>{setCraftKind(kind);setCraftMessage(`Selected ${def.label}.`);}}>
+                  <strong className="block text-xs text-cyan">{def.label}</strong><span className="mt-1 block text-[11px] text-muted">{def.description}</span>
                 </button>
               ))}
             </div>
-            <p className="mt-4 text-xs text-muted">The builder requires a clear area and protects world terminals and portals. Five AI assistants are a separate future phase.</p>
+            <div className="mt-4 rounded-lg border border-line bg-surface p-3">
+              <div className="flex flex-wrap justify-between gap-2 text-xs"><strong className="text-mint">{COMPUTE_STRUCTURES[craftKind].label} · Top-down footprint</strong><span className="text-muted">{craftBlueprintSummary(craftKind).total} blocks · 11×11 base · 5 levels max</span></div>
+              <pre aria-label="Blueprint overhead preview" className="mt-3 overflow-x-auto whitespace-pre font-mono text-[11px] leading-4 text-cyan">{craftBlueprintSummary(craftKind).preview}</pre>
+              <p className="mt-2 text-xs text-muted">Palette: {craftBlueprintSummary(craftKind).materials}. Placement uses the current dimension, a clear interior area, and protected-zone checks.</p>
+            </div>
+            <p role="status" aria-live="polite" className="mt-3 text-xs text-muted">{craftMessage}</p>
+            <button type="button" className="mt-3 w-full rounded-lg border border-mint bg-mint/10 px-4 py-3 font-bold text-mint" onClick={()=>{
+              const msg = gameRef.current?.buildComputeStructure(craftKind) ?? "Game not initialized.";
+              setCraftMessage(msg);
+              setToast(msg);
+              if (msg.toLowerCase().includes("built") || msg.toLowerCase().includes("placed")) { setBuilderOpen(false); gameRef.current?.setPaused(false); }
+            }}>Confirm local build · {blueprint(craftKind).length} voxels</button>
+            <p className="mt-3 text-[11px] text-muted">The existing engine validates world bounds, player clearance and protected terminals/portals. Five conversational AI agents are future work, not active in this build.</p>
           </section>
         </div>
-      )}
+      )}}
 
       {term && (
         <div className="absolute inset-0 z-30 flex items-end justify-center bg-bg/75 p-2 sm:items-center sm:p-4">
