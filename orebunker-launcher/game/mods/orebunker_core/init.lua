@@ -4,7 +4,7 @@ local mode = S:get("orebunker_mode") or "survival"
 local storage = minetest.get_mod_storage()
 local function node(name, label, color, rarity, points)
   minetest.register_node("orebunker_core:"..name,{
-    description=label, tiles={"orebunker_"..name..".png"},
+    description=label, tiles={"[fill:16x16:"..color},
     groups={cracky=2,stone=1},
     drop="orebunker_core:"..name,
     on_dig=function(pos,n,digger)
@@ -29,14 +29,28 @@ local function node(name, label, color, rarity, points)
   })
 end
 -- Textures use original simple palette artwork, not third-party trademark images.
-node("ore","ORE Emblem Crystal (fictional)",nil,12*12*12,25)
-node("solana","Solana Emblem Crystal (fictional)",nil,14*14*14,25)
-node("coal","Coal",nil,8*8*8,3)
-node("diamond","Diamond",nil,16*16*16,25)
-node("stone","Stone",nil,6*6*6,1)
+node("ore","ORE Emblem Crystal (fictional)","#f0a536",12*12*12,25)
+node("solana","Solana Emblem Crystal (fictional)","#61c9d6",14*14*14,25)
+node("coal","Coal","#333846",8*8*8,3)
+node("diamond","Diamond","#73dded",16*16*16,25)
+node("stone","Stone","#777e8b",6*6*6,1)
 
+minetest.register_alias("mapgen_stone","orebunker_core:stone")
+minetest.register_alias("mapgen_dirt","orebunker_core:stone")
+minetest.register_alias("mapgen_dirt_with_grass","orebunker_core:stone")
+minetest.register_alias("mapgen_sand","orebunker_core:stone")
+minetest.register_node("orebunker_core:water",{
+ description="Water",drawtype="liquid",
+ tiles={"[fill:16x16:#2364a8"},special_tiles={"[fill:16x16:#2364a8"},
+ paramtype="light",walkable=false,pointable=false,diggable=false,buildable_to=true,
+ liquidtype="source",liquid_alternative_flowing="orebunker_core:water",
+ liquid_alternative_source="orebunker_core:water",
+ liquid_viscosity=1,groups={water=3,liquid=3}
+})
+minetest.register_alias("mapgen_water_source","orebunker_core:water")
+minetest.register_alias("mapgen_river_water_source","orebunker_core:water")
 minetest.register_tool("orebunker_core:diamond_pick",{
- description="OreBunker Diamond Pickaxe",inventory_image="orebunker_pick.png",
+ description="OreBunker Diamond Pickaxe",inventory_image="[fill:16x16:#75d2ed",
  tool_capabilities={full_punch_interval=0.7,max_drop_level=3,
   groupcaps={cracky={times={[1]=0.65,[2]=0.35,[3]=0.2},uses=100,maxlevel=3}},
   damage_groups={fleshy=3}}
