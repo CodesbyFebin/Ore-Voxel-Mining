@@ -1,0 +1,28 @@
+name: EdgeORE branch release gates
+on:
+  push:
+    branches:
+      - feat/shaft-channel-safety
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Game and CraftGPT unit tests
+        run: node --experimental-strip-types --test src/game/craftgpt-ui.test.ts src/game/compute-structures.test.ts src/game/shaft-channel.test.ts src/game/shaft.test.ts src/game/mesher.test.ts src/ore/codec.test.ts
+      - name: Full repository tests
+        run: npm test
+      - name: Vite and app build
+        run: npm run build
