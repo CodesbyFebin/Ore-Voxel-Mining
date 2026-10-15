@@ -1,3 +1,4 @@
+// @ts-nocheck — JavaScript fixture/import validation is exercised by Node tests; TypeScript checks the typed engine adapter.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { compileBlueprint } from "./blueprint-bridge.mjs";
