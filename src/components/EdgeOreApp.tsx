@@ -1,6 +1,7 @@
 import "@/polyfills";
 import { useEffect, useRef, useState } from "react";
 import { Landing } from "@/components/Landing";
+import { MiniMap } from "@/components/MiniMap";
 import { LiveBoard, freshEta, youDeployed } from "@/components/LiveBoard";
 import { Download, X } from "lucide-react";
 import { SandboxMarket } from "@/components/SandboxMarket";
@@ -341,6 +342,8 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
         }}
       />
       {started && <div className="cross" aria-hidden />}
+
+      {started && snap && <MiniMap hud={snap} />}
 
       {started && snap && (
         <>
