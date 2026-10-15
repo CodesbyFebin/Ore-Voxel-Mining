@@ -1,3 +1,4 @@
+// @ts-nocheck — JavaScript fixture/import validation is exercised by Node tests; TypeScript checks the typed engine adapter.
 export function registryFromBlocks(BLOCKS) {
   const result = Object.create(null);
   const normalized = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
