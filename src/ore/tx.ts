@@ -1,4 +1,4 @@
-import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { connection } from "@/ore/chain";
 
 export type WalletProvider = {
@@ -119,9 +119,9 @@ type ClaimOreAccounts = ClaimSolAccounts & {
 
 /** Internal pure constructor allows independent fixture tests while public calls stay disabled. */
 export function constructClaimSolForConformance(params: ClaimSolAccounts): TransactionInstruction {
-  return {
+  return new TransactionInstruction({
     programId: ORE_PROGRAM_ID,
-    data: Uint8Array.of(3),
+    data: Buffer.from([3]),
     keys: [
       { pubkey: params.authority, isSigner: true, isWritable: true },
       { pubkey: params.boardAccount, isSigner: false, isWritable: false },
@@ -129,7 +129,7 @@ export function constructClaimSolForConformance(params: ClaimSolAccounts): Trans
       { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: ORE_PROGRAM_ID, isSigner: false, isWritable: false },
     ],
-  };
+  });
 }
 
 export function constructClaimOreForConformance(params: ClaimOreAccounts): TransactionInstruction {
@@ -139,9 +139,9 @@ export function constructClaimOreForConformance(params: ClaimOreAccounts): Trans
   const data = new Uint8Array(9);
   data[0] = 4;
   new DataView(data.buffer).setBigUint64(1, params.bpsToClaim, true);
-  return {
+  return new TransactionInstruction({
     programId: ORE_PROGRAM_ID,
-    data,
+    data: Buffer.from(data),
     keys: [
       { pubkey: params.authority, isSigner: true, isWritable: true },
       { pubkey: params.boardAccount, isSigner: false, isWritable: false },
@@ -155,7 +155,7 @@ export function constructClaimOreForConformance(params: ClaimOreAccounts): Trans
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: ORE_PROGRAM_ID, isSigner: false, isWritable: false },
     ],
-  };
+  });
 }
 
 export function buildCanonicalClaimSolInstruction(params: ClaimSolAccounts): TransactionInstruction {
