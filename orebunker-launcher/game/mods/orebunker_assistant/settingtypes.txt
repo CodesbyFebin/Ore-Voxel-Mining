@@ -1,0 +1,3 @@
+# Optional local language model; explicitly disabled by default.
+orebunker_ai_enabled (Enable optional local LLM dialogue) bool false
+orebunker_ai_model (Ollama model identifier) string llama3.2:3b
