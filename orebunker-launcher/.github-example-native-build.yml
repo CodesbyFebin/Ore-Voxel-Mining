@@ -1,0 +1,29 @@
+name: OreBunker Linux native engine qualification
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'orebunker-launcher/**'
+      - '.github/workflows/orebunker-native-linux.yml'
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build git build-essential libirrlicht-dev \
+            libsqlite3-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev \
+            libjpeg-dev libpng-dev libfreetype6-dev libzstd-dev libluajit-5.1-dev \
+            libogg-dev libgl1-mesa-dev libx11-dev libxi-dev libxxf86vm-dev \
+            libbz2-dev libgmp-dev libjsoncpp-dev gettext
+      - name: Build native engine, server, and original OreBunker game
+        run: bash orebunker-launcher/scripts/build-native-linux.sh
+      - name: Upload native build for technical review
+        uses: actions/upload-artifact@v4
+        with:
+          name: orebunker-native-linux-unverified
+          path: orebunker-launcher/build-native/dist/*.tar.gz
+          if-no-files-found: error
