@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { atmosphereAt, advanceHour } from "@/game/atmosphere";
 import { PICKAXES, BLOCKS, block } from "@/game/blocks";
 import { placeIntoEdgeOre } from "@/game/content/placement-adapter.mjs";
 import { planStructure, type ComputeStructure } from "@/game/compute-structures";
@@ -245,8 +246,10 @@ export function mountGame(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x041018);
   scene.fog = new THREE.FogExp2(0x0c2430, 0.032);
-  scene.add(new THREE.HemisphereLight(0xc8fff4, 0x2a1c14, 0.72));
-  scene.add(new THREE.AmbientLight(0x7ee7ff, 0.28));
+  const hemiLight = new THREE.HemisphereLight(0xc8fff4, 0x2a1c14, 0.72);
+  const ambientLight = new THREE.AmbientLight(0x7ee7ff, 0.28);
+  scene.add(hemiLight);
+  scene.add(ambientLight);
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.35);
   sun.position.set(24, 40, 24);
   scene.add(sun);
@@ -284,8 +287,14 @@ export function mountGame(
     new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false, fog: false }),
   );
   scene.add(sky);
-  const waterMat = new THREE.MeshBasicMaterial({ color: 0x167a96, transparent: true, opacity: 0.42, depthWrite: false });
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(WX, 14), waterMat);
+  const waterMat = new THREE.MeshBasicMaterial({ color: 0x167a96, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
+  const waterWaveTime = {value:0};
+  waterMat.onBeforeCompile = shader => {
+    shader.uniforms.uWaterWaveTime = waterWaveTime;
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform float uWaterWaveTime;");
+    shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\ntransformed.z += (sin(transformed.x * 0.4 + uWaterWaveTime * 0.8) + cos(transformed.y * 0.55 - uWaterWaveTime)) * 0.045;");
+  };
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(WX, 14, 48, 12), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.set(WX / 2, 8.05, 20);
   scene.add(water);
@@ -435,6 +444,7 @@ export function mountGame(
     (scene.fog as THREE.FogExp2).density = mode === "bunker" ? 0.055 : 0.032;
     paintSky(look.fog, look.sky);
     water.visible = world.dimension === "valley";
+    lastSkyUpdate=-1;
     if (world.dimension === "geode") waterMat.color.setHex(0x6a3cb5);
     if (world.dimension === "ember") waterMat.color.setHex(0xc2410c);
     if (world.dimension === "valley") waterMat.color.setHex(0x167a96);
@@ -1144,6 +1154,8 @@ export function mountGame(
   let alive = true;
 
   let lastPositionSave = 0;
+  let graphicsHour = 17.3;
+  let lastSkyUpdate = -1;
   function frame(now: number) {
     if (!alive) return;
     raf = requestAnimationFrame(frame);
@@ -1181,7 +1193,25 @@ export function mountGame(
     swing = Math.max(0, swing - dt * 4);
     view.rotation.x = Math.sin(swing * Math.PI) * 0.9;
     const t = now / 1000;
-    water.position.y = 8.05 + Math.sin(t * 1.4) * 0.05;
+    waterWaveTime.value=t;
+    water.position.y = 8.05 + Math.sin(t * 1.4) * 0.035;
+    if (world.dimension === "valley") {
+      graphicsHour = advanceHour(graphicsHour, dt, true);
+      if (now-lastSkyUpdate>1000) {
+        lastSkyUpdate=now;
+        const atmosphere=atmosphereAt(graphicsHour,"fair");
+        sun.position.set(WX/2+Math.cos(atmosphere.sunAngle)*42, Math.sin(atmosphere.sunAngle)*48, WZ/2+18);
+        sun.intensity=atmosphere.sunIntensity;
+        ambientLight.intensity=atmosphere.ambientIntensity;
+        hemiLight.intensity=atmosphere.ambientIntensity*1.6;
+        renderer.toneMappingExposure=atmosphere.exposure;
+        (scene.background as THREE.Color).setHex(atmosphere.skyTop);
+        const fog=scene.fog as THREE.FogExp2;
+        fog.color.setHex(atmosphere.fogColor);
+        fog.density=mode==="bunker"?Math.max(0.05,atmosphere.fogDensity):atmosphere.fogDensity;
+        paintSky(atmosphere.skyTop,atmosphere.skyHorizon);
+      }
+    }
     drone.position.y = world.terminal.y + 1.5 + Math.sin(t * 2) * 0.15;
     ring.rotation.z = t;
     beam.rotation.y = t * 0.4;
