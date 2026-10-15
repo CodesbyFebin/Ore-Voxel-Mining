@@ -11,11 +11,14 @@ const ALIASES: Array<[ComputeStructure, string[]]> = [
 export function parseCraftBuildCommand(raw: string): CraftCommandResult {
   const clean = raw.toLowerCase().trim().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
   if (!clean || clean.length > 100) return { ok:false, reason:"Enter a short command such as: build attention hall." };
-  const matches = ALIASES.flatMap(([kind, terms]) => terms.filter(term => clean.includes(term)).map(term => ({kind, size:term.length})));
-  const longest = Math.max(0, ...matches.map(match => match.size));
-  const best = [...new Set(matches.filter(match => match.size === longest).map(match => match.kind))];
-  if (best.length !== 1) return { ok:false, reason:"Choose one supported design: embedding, attention, arithmetic, or memory." };
-  return { ok:true, kind:best[0] };
+  const matches = ALIASES.flatMap(([kind, terms]) => terms.filter(term => clean.includes(term)).map(term => ({kind, term})));
+  const longest = [...matches].sort((a,b) => b.term.length-a.term.length)[0];
+  if (!longest) return { ok:false, reason:"Choose one supported design: embedding, attention, arithmetic, or memory." };
+  // Multiple independent design names are ambiguous. A specific phrase such as
+  // "token memory" may legitimately contain a shorter alias "memory".
+  const conflicts = matches.some(match => match.kind !== longest.kind && !longest.term.includes(match.term));
+  if (conflicts) return { ok:false, reason:"Choose just one design: embedding, attention, arithmetic, or memory." };
+  return { ok:true, kind:longest.kind };
 }
 export function craftBlueprintSummary(kind: ComputeStructure) {
   const voxels=blueprint(kind);
