@@ -65,8 +65,8 @@ minetest.register_entity(MOD..":guide",{
   collisionbox={-0.28,-1,-0.28,0.28,0.75,0.28},
   visual="cube",
   visual_size={x=0.85,y=1.7},
-  textures={"orebunker_guide.png","orebunker_guide.png","orebunker_guide.png",
-            "orebunker_guide.png","orebunker_guide.png","orebunker_guide.png"},
+  textures={"[fill:16x16:#35d0b0","[fill:16x16:#35d0b0","[fill:16x16:#35d0b0",
+            "[fill:16x16:#35d0b0","[fill:16x16:#35d0b0","[fill:16x16:#35d0b0"},
   static_save=true
  },
  on_rightclick=function(self,clicker)
