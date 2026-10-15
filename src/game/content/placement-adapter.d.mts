@@ -7,4 +7,4 @@ export function placeIntoEdgeOre(raw: unknown, origin: [number,number,number], c
   writeBlock:(x:number,y:number,z:number,id:number)=>void;
   save:()=>boolean;
   flushBackup:()=>Promise<void>;
-}): Promise<{blocks:number;chunks:number;invalidated:number}>;
+}): Promise<{blocks:number;chunks:number;invalidated:number;backupOk:boolean;warning?:string}>;
