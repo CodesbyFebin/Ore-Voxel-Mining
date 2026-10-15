@@ -1,4 +1,4 @@
-import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { connection } from "@/ore/chain";
 
 export type WalletProvider = {
@@ -96,4 +96,74 @@ export function buildClaimSol(_authority: string): never {
 
 export function buildClaimOre(_authority: string): never {
   spendingDisabled();
+}
+
+
+/** ORE v4 instruction format fixtures. Not proof of deployed-program identity. */
+export const ORE_PROGRAM_ID = new PublicKey("mineRHF5r6S7HyD9SppBfVMXMavDkJsxwGesEvxZr2A");
+export const ORE_MINT_ADDRESS = new PublicKey("oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp");
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
+
+/** Intentional permanent release guard until pinned-validator qualifications pass. */
+export const ALLOW_FINANCIAL_OPERATIONS = false as const;
+
+type ClaimSolAccounts = { authority: PublicKey; boardAccount: PublicKey; minerAccount: PublicKey };
+type ClaimOreAccounts = ClaimSolAccounts & {
+  recipientTokenAccount: PublicKey;
+  treasuryAccount: PublicKey;
+  treasuryTokenAccount: PublicKey;
+  bpsToClaim: bigint;
+};
+
+/** Internal pure constructor allows independent fixture tests while public calls stay disabled. */
+export function constructClaimSolForConformance(params: ClaimSolAccounts): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: ORE_PROGRAM_ID,
+    data: Buffer.from([3]),
+    keys: [
+      { pubkey: params.authority, isSigner: true, isWritable: true },
+      { pubkey: params.boardAccount, isSigner: false, isWritable: false },
+      { pubkey: params.minerAccount, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ORE_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+  });
+}
+
+export function constructClaimOreForConformance(params: ClaimOreAccounts): TransactionInstruction {
+  if (params.bpsToClaim < 1n || params.bpsToClaim > 10_000n) {
+    throw new RangeError("bpsToClaim must be between 1 and 10,000");
+  }
+  const data = new Uint8Array(9);
+  data[0] = 4;
+  new DataView(data.buffer).setBigUint64(1, params.bpsToClaim, true);
+  return new TransactionInstruction({
+    programId: ORE_PROGRAM_ID,
+    data: Buffer.from(data),
+    keys: [
+      { pubkey: params.authority, isSigner: true, isWritable: true },
+      { pubkey: params.boardAccount, isSigner: false, isWritable: false },
+      { pubkey: params.minerAccount, isSigner: false, isWritable: true },
+      { pubkey: ORE_MINT_ADDRESS, isSigner: false, isWritable: false },
+      { pubkey: params.recipientTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: params.treasuryAccount, isSigner: false, isWritable: true },
+      { pubkey: params.treasuryTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ORE_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+  });
+}
+
+export function buildCanonicalClaimSolInstruction(params: ClaimSolAccounts): TransactionInstruction {
+  spendingDisabled();
+  return constructClaimSolForConformance(params);
+}
+
+export function buildCanonicalClaimOreInstruction(params: ClaimOreAccounts): TransactionInstruction {
+  spendingDisabled();
+  return constructClaimOreForConformance(params);
 }
