@@ -40,6 +40,8 @@ export type HudSnapshot = {
   y: number;
   z: number;
   yaw: number;
+  shaftX: number;
+  shaftZ: number;
   coins: number;
   xp: number;
   mined: number;
@@ -1102,6 +1104,8 @@ export function mountGame(
       y: player.y,
       z: player.z,
       yaw: player.yaw,
+      shaftX: world.shaft.x,
+      shaftZ: world.shaft.z,
       coins,
       xp,
       mined,
