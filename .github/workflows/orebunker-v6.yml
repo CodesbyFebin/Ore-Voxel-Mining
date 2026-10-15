@@ -1,0 +1,19 @@
+name: OreBunker v6 gameplay core
+on:
+  push:
+    branches: [feat/orebunker-v6-integration]
+  pull_request:
+    paths:
+      - 'orebunker/v6/**'
+      - '.github/workflows/orebunker-v6.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify world, save and arena rules
+        run: node --test orebunker/v6/world.test.mjs
