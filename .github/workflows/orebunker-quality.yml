@@ -9,7 +9,7 @@ permissions:
 jobs:
   web:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,13 +17,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Install project dependencies
+      - name: Install locked dependencies
         run: npm ci
-      - name: Inspect available scripts
-        run: node -e "const p=require('./package.json'); console.log(JSON.stringify(p.scripts,null,2));"
-      - name: Run unit tests when configured
-        run: npm test -- --runInBand
-        continue-on-error: true
+      - name: TypeScript checks
+        run: npm run typecheck
+      - name: Unit and security tests
+        run: npm test
+      - name: Auth invariant
+        run: npm run check:auth
+      - name: ESLint
+        run: npm run lint
   native-static:
     runs-on: ubuntu-latest
     timeout-minutes: 15
