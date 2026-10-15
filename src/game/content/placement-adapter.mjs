@@ -16,13 +16,28 @@ export async function placeIntoEdgeOre(raw, origin, context) {
   if(!plan.patches.length)throw Error('Blueprint contains no solid blocks');
   for(const p of plan.patches)if(readBlock(p.x,p.y,p.z)!==0)throw Error('Placement conflicts with an existing block');
   const before=[];
+  let applied=false;
   try {
-    for(const p of plan.patches){before.push({...p,previous:readBlock(p.x,p.y,p.z)});writeBlock(p.x,p.y,p.z,p.id);}
+    for(const p of plan.patches){
+      before.push({...p,previous:readBlock(p.x,p.y,p.z)});
+      writeBlock(p.x,p.y,p.z,p.id);
+    }
+    applied=true;
+    if(save()!==true)throw Error('Authoritative localStorage save failed');
   }catch(e){
+    // If primary storage rejected the transaction, restore the in-memory world
+    // and its edit map instead of leaving edits that a later autosave could leak.
     for(const p of before.reverse())writeBlock(p.x,p.y,p.z,p.previous);
+    if(applied)save();
     throw e;
   }
-  if(save()===false)throw Error('Authoritative localStorage save failed');
-  await flushBackup();
-  return {blocks:plan.patches.length,chunks:plan.chunks.length,invalidated:plan.invalidate.length};
+  try {
+    await flushBackup();
+  }catch(e){
+    // Primary save is already durable; never claim the entire operation failed
+    // as if it could safely be retried (which would now conflict with edits).
+    return {blocks:plan.patches.length,chunks:plan.chunks.length,invalidated:plan.invalidate.length,
+      backupOk:false,warning:'Primary save succeeded, but IndexedDB backup failed: '+String(e)};
+  }
+  return {blocks:plan.patches.length,chunks:plan.chunks.length,invalidated:plan.invalidate.length,backupOk:true};
 }
