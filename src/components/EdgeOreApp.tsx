@@ -766,7 +766,7 @@ export function EdgeOreApp({ autostart = false }: { autostart?: boolean }) {
             <p className="mt-3 text-[11px] text-muted">The existing engine validates world bounds, player clearance and protected terminals/portals. Five conversational AI agents are future work, not active in this build.</p>
           </section>
         </div>
-      )}}
+      )}
 
       {term && (
         <div className="absolute inset-0 z-30 flex items-end justify-center bg-bg/75 p-2 sm:items-center sm:p-4">
