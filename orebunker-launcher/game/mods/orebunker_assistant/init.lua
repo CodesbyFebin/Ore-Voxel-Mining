@@ -3,6 +3,8 @@ local MOD = minetest.get_current_modname()
 local CHAT_FORM = "orebunker_assistant:chat"
 local conversations = {}
 local MAX_QUERY = 240
+local llm = dofile(minetest.get_modpath(MOD) .. "/llm.lua")
+local last_request = {}
 local function text(s)
  return minetest.formspec_escape(s)
 end
@@ -47,7 +49,25 @@ minetest.register_on_player_receive_fields(function(player, form, fields)
  if fields.quit and not fields.ask and not fields.directions then return true end
  local q=fields.directions and "where am I" or fields.question or ""
  if #q>MAX_QUERY then show(player,"Question too long (240 character limit)."); return true end
- show(player,response(player,q))
+ local offline = response(player,q)
+ local name = player:get_player_name()
+ -- Wallet or sensitive queries always stay on the deterministic offline path.
+ if q:lower():find("wallet",1,true) or q:lower():find("seed",1,true) or
+    q:lower():find("password",1,true) or q:lower():find("transaction",1,true) then
+  show(player,offline);return true
+ end
+ if not llm.available() then show(player,offline);return true end
+ local now=minetest.get_us_time()/1000000
+ if now-(last_request[name] or -math.huge)<3 then
+  show(player,"Please wait 3 seconds before asking again.");return true
+ end
+ last_request[name]=now
+ show(player,"Guide is thinking locally...")
+ llm.ask(player,q,function(answer,err)
+  local active=minetest.get_player_by_name(name)
+  if not active then return end
+  show(active,answer or (offline.." (Local model unavailable.)"))
+ end)
  return true
 end)
 minetest.register_chatcommand("obassistant",{
@@ -101,4 +121,6 @@ minetest.register_chatcommand("obguide",{
   return true,"Guide spawned. Right-click the guide to talk."
  end
 })
-minetest.register_on_leaveplayer(function(player) conversations[player:get_player_name()]=nil end)
+minetest.register_on_leaveplayer(function(player) conversations[player:get_player_name()]=nil
+ last_request[player:get_player_name()]=nil
+ llm.clear(player:get_player_name()) end)
