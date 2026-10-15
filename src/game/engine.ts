@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { PICKAXES, block } from "@/game/blocks";
+import { PICKAXES, BLOCKS, block } from "@/game/blocks";
+import { placeIntoEdgeOre } from "@/game/content/placement-adapter.mjs";
 import { planStructure, type ComputeStructure } from "@/game/compute-structures";
 import { IndexedDBChunkStorage, CHUNK_EDGE, CHUNK_VOLUME, type ChunkRecordInput } from "@/game/storage/indexeddb-chunks";
 import { validPose, validMachines, type PlayerPose, type MachineEntity } from "@/game/storage/save-state";
@@ -719,8 +720,9 @@ export function mountGame(
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(file));
       scheduleChunkBackup();
+      return true;
     } catch {
-      /* quota */
+      return false;
     }
   }
 
@@ -1281,6 +1283,20 @@ export function mountGame(
   raf = requestAnimationFrame(frame);
   opts.onHud(snapshot());
 
+  // Development-only blueprint importer, intentionally not a gameplay or wallet API.
+  let blueprintImportQueue: Promise<unknown> = Promise.resolve();
+  async function importBlueprint(raw: unknown, origin: [number, number, number]) {
+    const { shaftColumn } = await import("@/game/shaft");
+    const task = blueprintImportQueue.catch(() => undefined).then(() => placeIntoEdgeOre(raw, origin, {
+      BLOCKS, WX, WY, WZ, shaft: shaftColumn(seed), player,
+      terminal: world.terminal, vault: world.vault, portals: world.portals, machines,
+      readBlock: getId, writeBlock, save,
+      flushBackup: async () => { flushChunkBackup(); await backupChain; },
+    }));
+    blueprintImportQueue = task;
+    return task;
+  }
+
   const handle: GameHandle = {
     buildComputeStructure,
     start() {
@@ -1470,5 +1486,15 @@ export function mountGame(
     },
   };
 
+  if (import.meta.env.DEV && (location.hostname === "127.0.0.1" || location.hostname === "localhost") && new URLSearchParams(location.search).get("e2e") === "1") {
+    const testControl = Object.freeze({
+      snapshot: () => ({...snapshot(), seed, position: {x:player.x,y:player.y,z:player.z}}),
+      getBlock: (x:number,y:number,z:number) => inWorld(x,y,z) ? getId(x,y,z) : null,
+      placeBlueprint: (raw:unknown, origin:[number,number,number]) => importBlueprint(raw,origin),
+      flush: async () => { if(!save())throw Error("Authoritative save failed"); flushChunkBackup(); await backupChain; },
+      storage: () => ({database:"edgeore-world-chunks-v1",world:`seed:${seed}:dimension:${dimension}`}),
+    });
+    Object.defineProperty(window,"__edgeoreE2E",{value:testControl,configurable:true});
+  }
   return handle;
 }
